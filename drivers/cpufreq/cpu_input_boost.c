@@ -103,6 +103,30 @@ static unsigned int get_max_boost_freq(struct cpufreq_policy *policy)
 	return min(freq, policy->max);
 }
 
+static unsigned int get_min_freq(struct cpufreq_policy *policy)
+{
+	unsigned int freq;
+
+	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
+		freq = cpu_freq_min_little;
+	else (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
+		freq = cpu_freq_min_big;
+
+	return max(freq, policy->cpuinfo.min_freq);
+}
+
+static unsigned int get_idle_freq(struct cpufreq_policy *policy)
+{
+	unsigned int freq;
+
+	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
+		freq = cpu_freq_idle_little;
+	else (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
+		freq = cpu_freq_idle_big;
+
+	return max(freq, policy->cpuinfo.min_freq);
+}
+
 static void update_online_cpu_policy(void)
 {
 	unsigned int cpu;
@@ -226,7 +250,7 @@ static int cpu_notifier_cb(struct notifier_block *nb, unsigned long action,
 
 	/* Unboost when the screen is off */
 	if (test_bit(SCREEN_OFF, &b->state)) {
-		policy->min = policy->cpuinfo.min_freq;
+		policy->min = get_idle_freq(policy);
 		return NOTIFY_OK;
 	}
 
