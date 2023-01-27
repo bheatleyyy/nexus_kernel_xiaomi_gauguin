@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/module.h>
@@ -1378,8 +1377,8 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 {
 	int                                  rc = 0, idx;
 	int                                  reset_step = 0;
-	uint32_t                             trigger = trigger_data->trigger;
 	bool                                 check_retry_cnt = false;
+	uint32_t                             trigger = trigger_data->trigger;
 	struct cam_req_mgr_slot             *slot = NULL;
 	struct cam_req_mgr_req_queue        *in_q;
 	struct cam_req_mgr_core_session     *session;
@@ -1500,6 +1499,7 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 	if (rc < 0) {
 		/* Apply req failed retry at next sof */
 		slot->status = CRM_SLOT_STATUS_REQ_PENDING;
+
 		if (jiffies_to_msecs(jiffies - link->last_applied_jiffies) >
 			MINIMUM_WORKQUEUE_SCHED_TIME_IN_MS)
 			check_retry_cnt = true;
@@ -1518,7 +1518,11 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 				__cam_req_mgr_notify_error_on_link(link, dev);
 				link->retry_cnt = 0;
 			}
-		}
+		} else
+			CAM_WARN(CAM_CRM,
+				"workqueue congestion, last applied idx:%d rd idx:%d",
+				in_q->last_applied_idx,
+				in_q->rd_idx);
 	} else {
 		if (link->retry_cnt)
 			link->retry_cnt = 0;
@@ -1566,7 +1570,8 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 			link->open_req_cnt--;
 		}
 	}
-    /*
+
+	/*
 	 * Only update the jiffies of last applied request
 	 * for SOF trigger, since it is used to protect from
 	 * applying fails in ISP which is triggered at SOF.
