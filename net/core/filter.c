@@ -1730,27 +1730,25 @@ BPF_CALL_5(bpf_skb_load_bytes_relative, const struct sk_buff *, skb,
 	   u32, offset, void *, to, u32, len, u32, start_header)
 {
 	u8 *end = skb_tail_pointer(skb);
-	u8 *start, *ptr;
+	u8 *net = skb_network_header(skb);
+	u8 *mac = skb_mac_header(skb);
+	u8 *ptr;
 
-	if (unlikely(offset > 0xffff))
+	if (unlikely(offset > 0xffff || len > (end - mac)))
 		goto err_clear;
 
 	switch (start_header) {
 	case BPF_HDR_START_MAC:
-		if (unlikely(!skb_mac_header_was_set(skb)))
-			goto err_clear;
-		start = skb_mac_header(skb);
+		ptr = mac + offset;
 		break;
 	case BPF_HDR_START_NET:
-		start = skb_network_header(skb);
+		ptr = net + offset;
 		break;
 	default:
 		goto err_clear;
 	}
 
-	ptr = start + offset;
-
-	if (likely(ptr + len <= end)) {
+	if (likely(ptr >= mac && ptr + len <= end)) {
 		memcpy(to, ptr, len);
 		return 0;
 	}
@@ -2002,7 +2000,7 @@ static inline int __bpf_tx_skb(struct net_device *dev, struct sk_buff *skb)
 {
 	int ret;
 
-	if (dev_xmit_recursion()) {
+	if (unlikely(__this_cpu_read(xmit_recursion) > XMIT_RECURSION_LIMIT)) {
 		net_crit_ratelimited("bpf: recursion limit reached on datapath, buggy bpf program?\n");
 		kfree_skb(skb);
 		return -ENETDOWN;
@@ -2011,9 +2009,9 @@ static inline int __bpf_tx_skb(struct net_device *dev, struct sk_buff *skb)
 	skb->dev = dev;
 	skb->tstamp = 0;
 
-	dev_xmit_recursion_inc();
+	__this_cpu_inc(xmit_recursion);
 	ret = dev_queue_xmit(skb);
-	dev_xmit_recursion_dec();
+	__this_cpu_dec(xmit_recursion);
 
 	return ret;
 }
@@ -2695,7 +2693,7 @@ static int bpf_skb_proto_6_to_4(struct sk_buff *skb)
 
 static int bpf_skb_proto_xlat(struct sk_buff *skb, __be16 to_proto)
 {
-	__be16 from_proto = skb_protocol(skb, true);
+	__be16 from_proto = skb->protocol;
 
 	if (from_proto == htons(ETH_P_IP) &&
 	      to_proto == htons(ETH_P_IPV6))
@@ -2768,7 +2766,7 @@ static const struct bpf_func_proto bpf_skb_change_type_proto = {
 
 static u32 bpf_skb_net_base_len(const struct sk_buff *skb)
 {
-	switch (skb_protocol(skb, true)) {
+	switch (skb->protocol) {
 	case htons(ETH_P_IP):
 		return sizeof(struct iphdr);
 	case htons(ETH_P_IPV6):
@@ -2849,7 +2847,7 @@ static int bpf_skb_adjust_net(struct sk_buff *skb, s32 len_diff)
 	u32 len_cur, len_diff_abs = abs(len_diff);
 	u32 len_min = bpf_skb_net_base_len(skb);
 	u32 len_max = __bpf_skb_max_len(skb);
-	__be16 proto = skb_protocol(skb, true);
+	__be16 proto = skb->protocol;
 	bool shrink = len_diff < 0;
 	int ret;
 
@@ -3594,6 +3592,45 @@ err_clear:
 	memset(to, 0, size);
 	return err;
 }
+
+/*
+ * simple hash function for a string,
+ * http://www.cse.yorku.ca/~oz/hash.html
+ */
+static u64 hash_string(const char *str)
+{
+	u64 hash = 5381;
+	int c;
+
+	while ((c = *str++))
+		hash = ((hash << 5) + hash) + c;
+
+	return hash;
+}
+
+BPF_CALL_1(bpf_get_comm_hash_from_sk, struct sk_buff *, skb)
+{
+	struct task_struct *p_task = NULL;
+	struct sock *sk = sk_to_full_sk(skb->sk);
+	u64 hash = -1;
+	pid_t pid = sk->pid_num;
+	rcu_read_lock();
+	p_task = find_task_by_pid_ns(pid, &init_pid_ns);
+	if (p_task) {
+		get_task_struct(p_task);
+		hash = hash_string(p_task->comm);
+		put_task_struct(p_task);
+	}
+	rcu_read_unlock();
+	return hash;
+}
+
+static const struct bpf_func_proto bpf_get_comm_hash_from_sk_proto = {
+	.func           = bpf_get_comm_hash_from_sk,
+	.gpl_only       = false,
+	.ret_type       = RET_INTEGER,
+	.arg1_type      = ARG_PTR_TO_CTX,
+};
 
 static const struct bpf_func_proto bpf_skb_get_tunnel_opt_proto = {
 	.func		= bpf_skb_get_tunnel_opt,
@@ -4553,7 +4590,7 @@ static int bpf_push_seg6_encap(struct sk_buff *skb, u32 type, void *hdr, u32 len
 
 	switch (type) {
 	case BPF_LWT_ENCAP_SEG6_INLINE:
-		if (skb_protocol(skb, true) != htons(ETH_P_IPV6))
+		if (skb->protocol != htons(ETH_P_IPV6))
 			return -EBADMSG;
 
 		err = seg6_do_srh_inline(skb, srh);
@@ -4907,6 +4944,8 @@ sk_filter_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_get_socket_cookie_proto;
 	case BPF_FUNC_get_socket_uid:
 		return &bpf_get_socket_uid_proto;
+	case BPF_FUNC_get_comm_hash_from_sk:
+		return &bpf_get_comm_hash_from_sk_proto;
 	default:
 		return bpf_base_func_proto(func_id);
 	}
@@ -5421,6 +5460,8 @@ static int bpf_gen_ld_abs(const struct bpf_insn *orig,
 	bool indirect = BPF_MODE(orig->code) == BPF_IND;
 	struct bpf_insn *insn = insn_buf;
 
+	/* We're guaranteed here that CTX is in R6. */
+	*insn++ = BPF_MOV64_REG(BPF_REG_1, BPF_REG_CTX);
 	if (!indirect) {
 		*insn++ = BPF_MOV64_IMM(BPF_REG_2, orig->imm);
 	} else {
@@ -5428,8 +5469,6 @@ static int bpf_gen_ld_abs(const struct bpf_insn *orig,
 		if (orig->imm)
 			*insn++ = BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, orig->imm);
 	}
-	/* We're guaranteed here that CTX is in R6. */
-	*insn++ = BPF_MOV64_REG(BPF_REG_1, BPF_REG_CTX);
 
 	switch (BPF_SIZE(orig->code)) {
 	case BPF_B:

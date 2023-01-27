@@ -2,6 +2,7 @@
  * Based on arch/arm/kernel/traps.c
  *
  * Copyright (C) 1995-2009 Russell King
+ * Copyright (C) 2021 XiaoMi, Inc.
  * Copyright (C) 2012 ARM Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -119,6 +120,9 @@ void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 	if (!tsk)
 		tsk = current;
 
+	if (tsk->state == TASK_DEAD)
+		return;
+
 	if (!try_get_task_stack(tsk))
 		return;
 
@@ -156,6 +160,11 @@ void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 			|| cur_fp != thread_saved_fp(tsk))) {
 			printk("The task:%s had been rescheduled!\n",
 				tsk->comm);
+			break;
+                }
+		/* do not dump_backtrace current task on other cpu, frame is the last info */
+		if (tsk != current && tsk->on_cpu == 1) {
+			printk("The task:%s is running on other cpu currently!\n", tsk->comm);
 			break;
 		}
 		/* skip until specified stack frame */
@@ -505,15 +514,6 @@ static void ctr_read_handler(unsigned int esr, struct pt_regs *regs)
 {
 	int rt = (esr & ESR_ELx_SYS64_ISS_RT_MASK) >> ESR_ELx_SYS64_ISS_RT_SHIFT;
 	unsigned long val = arm64_ftr_reg_user_value(&arm64_ftr_reg_ctrel0);
-
-	if (cpus_have_const_cap(ARM64_WORKAROUND_1542419)) {
-		/* Hide DIC so that we can trap the unnecessary maintenance...*/
-		val &= ~BIT(CTR_DIC_SHIFT);
-
-		/* ... and fake IminLine to reduce the number of traps. */
-		val &= ~CTR_IMINLINE_MASK;
-		val |= (PAGE_SHIFT - 2) & CTR_IMINLINE_MASK;
-	}
 
 	pt_regs_write_reg(regs, rt, val);
 

@@ -32,14 +32,15 @@
 #define NVT_XIAOMI_CONFIG_INFO "nvt_xiaomi_config_info"
 #define NVT_XIAOMI_LOCKDOWN_INFO "tp_lockdown_info"
 
+
 #define SPI_TANSFER_LENGTH  256
 
-#define NORMAL_MODE				0x00
-#define TEST_MODE_1				0x21
-#define TEST_MODE_2				0x22
-#define HANDSHAKING_HOST_READY	0xBB
+#define NORMAL_MODE 0x00
+#define TEST_MODE_1 0x21
+#define TEST_MODE_2 0x22
+#define HANDSHAKING_HOST_READY 0xBB
 
-#define XDATA_SECTOR_SIZE		256
+#define XDATA_SECTOR_SIZE   256
 
 static uint8_t xdata_tmp[2048] = {0};
 static int32_t xdata[2048] = {0};
@@ -68,10 +69,10 @@ void nvt_change_mode(uint8_t mode)
 {
 	uint8_t buf[8] = {0};
 
-	/* ---set xdata index to EVENT BUF ADDR--- */
+	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_HOST_CMD);
 
-	/* ---set mode--- */
+	//---set mode---
 	buf[0] = EVENT_MAP_HOST_CMD;
 	buf[1] = mode;
 	CTP_SPI_WRITE(ts->client, buf, 2);
@@ -95,13 +96,16 @@ uint8_t nvt_get_fw_pipe(void)
 {
 	uint8_t buf[8]= {0};
 
-	/* ---set xdata index to EVENT BUF ADDR--- */
+	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE);
 
-	/* ---read fw status--- */
+	//---read fw status---
 	buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
 	buf[1] = 0x00;
 	CTP_SPI_READ(ts->client, buf, 2);
+
+	//NVT_LOG("FW pipe=%d, buf[1]=0x%02X\n", (buf[1]&0x01), buf[1]);
+
 	return (buf[1] & 0x01);
 }
 
@@ -123,7 +127,7 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 	int32_t data_len = 0;
 	int32_t residual_len = 0;
 
-	/* ---set xdata sector address & length--- */
+	//---set xdata sector address & length---
 	head_addr = xdata_addr - (xdata_addr % XDATA_SECTOR_SIZE);
 	dummy_len = xdata_addr - head_addr;
 	data_len = ts->x_num * ts->y_num * 2;
@@ -131,53 +135,66 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 	//printk("head_addr=0x%05X, dummy_len=0x%05X, data_len=0x%05X, residual_len=0x%05X\n", head_addr, dummy_len, data_len, residual_len);
 
-	/* read xdata : step 1 */
+	//read xdata : step 1
 	for (i = 0; i < ((dummy_len + data_len) / XDATA_SECTOR_SIZE); i++) {
-		/* ---read xdata by SPI_TANSFER_LENGTH */
+		//---read xdata by SPI_TANSFER_LENGTH
 		for (j = 0; j < (XDATA_SECTOR_SIZE / SPI_TANSFER_LENGTH); j++) {
-			/* ---change xdata index--- */
+			//---change xdata index---
 			nvt_set_page(head_addr + (XDATA_SECTOR_SIZE * i) + (SPI_TANSFER_LENGTH * j));
 
-			/* ---read data--- */
+			//---read data---
 			buf[0] = SPI_TANSFER_LENGTH * j;
 			CTP_SPI_READ(ts->client, buf, SPI_TANSFER_LENGTH + 1);
 
-			/* ---copy buf to xdata_tmp--- */
+			//---copy buf to xdata_tmp---
 			for (k = 0; k < SPI_TANSFER_LENGTH; k++) {
 				xdata_tmp[XDATA_SECTOR_SIZE * i + SPI_TANSFER_LENGTH * j + k] = buf[k + 1];
-				/* printk("0x%02X, 0x%04X\n", buf[k+1], (XDATA_SECTOR_SIZE*i + SPI_TANSFER_LENGTH*j + k)); */
+				//printk("0x%02X, 0x%04X\n", buf[k+1], (XDATA_SECTOR_SIZE*i + SPI_TANSFER_LENGTH*j + k));
 			}
 		}
-		/* printk("addr=0x%05X\n", (head_addr+XDATA_SECTOR_SIZE*i)); */
+		//printk("addr=0x%05X\n", (head_addr+XDATA_SECTOR_SIZE*i));
 	}
 
-	/* read xdata : step2 */
+	//read xdata : step2
 	if (residual_len != 0) {
-		/* ---read xdata by SPI_TANSFER_LENGTH */
+		//---read xdata by SPI_TANSFER_LENGTH
 		for (j = 0; j < (residual_len / SPI_TANSFER_LENGTH + 1); j++) {
-			/* ---change xdata index--- */
+			//---change xdata index---
 			nvt_set_page(xdata_addr + data_len - residual_len + (SPI_TANSFER_LENGTH * j));
 
-			/* ---read data--- */
+			//---read data---
 			buf[0] = SPI_TANSFER_LENGTH * j;
 			CTP_SPI_READ(ts->client, buf, SPI_TANSFER_LENGTH + 1);
 
-			/* ---copy buf to xdata_tmp--- */
+			//---copy buf to xdata_tmp---
 			for (k = 0; k < SPI_TANSFER_LENGTH; k++) {
 				xdata_tmp[(dummy_len + data_len - residual_len) + SPI_TANSFER_LENGTH * j + k] = buf[k + 1];
-				/* printk("0x%02X, 0x%04x\n", buf[k+1], ((dummy_len+data_len-residual_len) + SPI_TANSFER_LENGTH*j + k)); */
+				//printk("0x%02X, 0x%04x\n", buf[k+1], ((dummy_len+data_len-residual_len) + SPI_TANSFER_LENGTH*j + k));
 			}
 		}
-		/* printk("addr=0x%05X\n", (xdata_addr+data_len-residual_len)); */
+		//printk("addr=0x%05X\n", (xdata_addr+data_len-residual_len));
 	}
 
-	/* ---remove dummy data and 2bytes-to-1data--- */
+	//---remove dummy data and 2bytes-to-1data---
 	for (i = 0; i < (data_len / 2); i++) {
 		xdata[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 * xdata_tmp[dummy_len + i * 2 + 1]);
 	}
 
+#if TOUCH_KEY_NUM > 0
+	//read button xdata : step3
+	//---change xdata index---
+	nvt_set_page(xdata_btn_addr);
+	//---read data---
+	buf[0] = (xdata_btn_addr & 0xFF);
+	CTP_SPI_READ(ts->client, buf, (TOUCH_KEY_NUM * 2 + 1));
 
-	/* ---set xdata index to EVENT BUF ADDR--- */
+	//---2bytes-to-1data---
+	for (i = 0; i < TOUCH_KEY_NUM; i++) {
+		xdata[ts->x_num * ts->y_num + i] = (int16_t)(buf[1 + i * 2] + 256 * buf[1 + i * 2 + 1]);
+	}
+#endif
+
+	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 }
 
@@ -227,6 +244,12 @@ static int32_t c_show(struct seq_file *m, void *v)
 		seq_puts(m, "\n");
 	}
 
+#if TOUCH_KEY_NUM > 0
+	for (i = 0; i < TOUCH_KEY_NUM; i++) {
+		seq_printf(m, "%5d, ", xdata[ts->x_num * ts->y_num + i]);
+	}
+	seq_puts(m, "\n");
+#endif
 
 	seq_printf(m, "\n\n");
 	return 0;
@@ -303,7 +326,7 @@ static int32_t nvt_fw_version_open(struct inode *inode, struct file *file)
 		return -ERESTARTSYS;
 	}
 
-	NVT_LOG("%s ++\n", __func__);
+	NVT_LOG("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -316,7 +339,7 @@ static int32_t nvt_fw_version_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("%s --\n", __func__);
+	NVT_LOG("--\n");
 
 	return seq_open(file, &nvt_fw_version_seq_ops);
 }
@@ -342,7 +365,7 @@ static int32_t nvt_baseline_open(struct inode *inode, struct file *file)
 		return -ERESTARTSYS;
 	}
 
-	NVT_LOG("%s ++\n", __func__);
+	NVT_LOG("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -371,7 +394,7 @@ static int32_t nvt_baseline_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("%s --\n", __func__);
+	NVT_LOG("--\n");
 
 	return seq_open(file, &nvt_seq_ops);
 }
@@ -397,7 +420,7 @@ static int32_t nvt_raw_open(struct inode *inode, struct file *file)
 		return -ERESTARTSYS;
 	}
 
-	NVT_LOG("%s ++\n", __func__);
+	NVT_LOG("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -429,7 +452,7 @@ static int32_t nvt_raw_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("%s --\n", __func__);
+	NVT_LOG("--\n");
 
 	return seq_open(file, &nvt_seq_ops);
 }
@@ -455,7 +478,7 @@ static int32_t nvt_diff_open(struct inode *inode, struct file *file)
 		return -ERESTARTSYS;
 	}
 
-	NVT_LOG("%s ++\n", __func__);
+	NVT_LOG("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -487,7 +510,7 @@ static int32_t nvt_diff_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("%s --\n", __func__);
+	NVT_LOG("--\n");
 
 	return seq_open(file, &nvt_seq_ops);
 }
@@ -517,13 +540,13 @@ static int32_t nvt_xiaomi_config_info_open(struct inode *inode, struct file *fil
 		return -ERESTARTSYS;
 	}
 
-	NVT_LOG("%s ++\n", __func__);
+	NVT_LOG("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-	/* ---set xdata index to EVENT BUF ADDR--- */
+	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | 0x9C);
 
 	buf[0] = 0x9C;
@@ -535,7 +558,7 @@ static int32_t nvt_xiaomi_config_info_open(struct inode *inode, struct file *fil
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("%s --\n", __func__);
+	NVT_LOG("--\n");
 
 	return single_open(file, nvt_xiaomi_config_info_show, NULL);
 }
@@ -578,6 +601,7 @@ int32_t nvt_set_pocket_palm_switch(uint8_t pocket_palm_switch)
 	uint8_t buf[8] = {0};
 	int32_t ret = 0;
 
+	NVT_LOG("++\n");
 	NVT_LOG("set pocket palm switch: %d\n", pocket_palm_switch);
 
 	msleep(35);
@@ -609,7 +633,7 @@ int32_t nvt_set_pocket_palm_switch(uint8_t pocket_palm_switch)
 	}
 
 nvt_set_pocket_palm_switch_out:
-	NVT_LOG("%s --\n", __func__);
+	NVT_LOG("--\n");
 	return ret;
 }
 

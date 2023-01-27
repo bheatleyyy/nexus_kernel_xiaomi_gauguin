@@ -12,6 +12,9 @@
 #include <linux/device.h>
 #include <linux/thermal.h>
 
+#ifdef CONFIG_DRM
+#include <drm/drm_notifier_mi.h>
+#endif
 /* Initial state of a cooling device during binding */
 #define THERMAL_NO_TARGET -1UL
 
@@ -43,6 +46,11 @@ struct thermal_instance {
 	unsigned int weight; /* The weight of the cooling device */
 };
 
+struct msm_drm_notifier {
+	enum msm_drm_display_id id;
+	void *data;
+};
+
 #define to_thermal_zone(_dev) \
 	container_of(_dev, struct thermal_zone_device, device)
 
@@ -65,8 +73,6 @@ void thermal_cooling_device_setup_sysfs(struct thermal_cooling_device *);
 void thermal_cooling_device_destroy_sysfs(struct thermal_cooling_device *cdev);
 /* used only at binding time */
 ssize_t trip_point_show(struct device *, struct device_attribute *, char *);
-ssize_t trip_point_store(struct device *, struct device_attribute *,
-			 const char *, size_t);
 ssize_t weight_show(struct device *, struct device_attribute *, char *);
 ssize_t lower_limit_show(struct device *dev, struct device_attribute *attr,
 			char *buf);

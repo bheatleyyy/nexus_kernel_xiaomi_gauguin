@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/debugfs.h>
@@ -20,7 +21,6 @@
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
-#include <uapi/linux/sched/types.h>
 #include <linux/spmi.h>
 #include <linux/sched/debug.h>
 #include <linux/input/qpnp-power-on.h>
@@ -135,7 +135,6 @@
 
 #define QPNP_PON_UVLO_DLOAD_EN			BIT(7)
 #define QPNP_PON_SMPL_EN			BIT(7)
-#define QPNP_PON_KPDPWR_ON			BIT(0)
 
 /* Limits */
 #define QPNP_PON_S1_TIMER_MAX			10256
@@ -210,7 +209,6 @@ struct qpnp_pon {
 	struct delayed_work	collect_d_work;
 	bool			collect_d_in_progress;
 	struct dentry		*debugfs;
-	struct task_struct	*longpress_task;
 	u16			base;
 	u8			subtype;
 	u8			pon_ver;
@@ -237,11 +235,8 @@ struct qpnp_pon {
 	bool			kpdpwr_dbc_enable;
 	bool			resin_pon_reset;
 	ktime_t			kpdpwr_last_release_time;
-	ktime_t			time_kpdpwr_bark;
-	bool			log_kpd_event;
 };
 
-int in_long_press;
 static int pon_ship_mode_en;
 module_param_named(
 	ship_mode_en, pon_ship_mode_en, int, 0600
@@ -1124,7 +1119,7 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 		}
 	}
 
-	pr_debug("PMIC input: code=%d, status=0x%02X\n", cfg->key_code,
+	pr_crit("PMIC input: code=%d, status=0x%02X\n", cfg->key_code,
 		pon_rt_sts);
 	key_status = pon_rt_sts & pon_rt_bit;
 
@@ -1137,10 +1132,6 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	 * Simulate a press event in case release event occurred without a press
 	 * event
 	 */
-	if (pon->log_kpd_event && (cfg->pon_type == PON_KPDPWR))
-		pr_info_ratelimited("PMIC input: KPDPWR status=0x%02x, KPDPWR_ON=%d\n",
-			pon_rt_sts, (pon_rt_sts & QPNP_PON_KPDPWR_ON));
-
 	if (!cfg->old_state && !key_status) {
 		input_report_key(pon->pon_input, cfg->key_code, 1);
 		input_sync(pon->pon_input);
@@ -1154,31 +1145,6 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	return 0;
 }
 
-static int longpress_kthread(void *_pon)
-{
-#ifdef CONFIG_MTD_BLOCK2MTD
-	struct qpnp_pon *pon = _pon;
-	ktime_t time_to_S2, time_S2;
-	struct sched_param param = {.sched_priority = MAX_RT_PRIO-1};
-
-	sched_setscheduler(current, SCHED_FIFO, &param);
-	dev_err(pon->dev, "Long press :Start to run longpress_kthread ");
-
-	ufs_enter_h8_disable(g_shost);
-	long_press();
-
-	time_S2 = pon->pon_cfg->s2_timer;
-	time_to_S2 = time_S2 - ktime_ms_delta(ktime_get(), pon->time_kpdpwr_bark);
-
-	if (time_to_S2 > 0)
-		mdelay(time_to_S2);
-
-	machine_restart(NULL);
-#endif
-
-	return 0;
-}
-
 static void collect_d_work_func(struct work_struct *work)
 {
 	int rc;
@@ -1186,11 +1152,10 @@ static void collect_d_work_func(struct work_struct *work)
 	uint pon_rt_sts = 0;
 	struct qpnp_pon *pon =
 		container_of(work, struct qpnp_pon, collect_d_work.work);
-
 	bool volp_scan = 0;
 	struct qpnp_pon_config *cfg = NULL;
 
-	volp_scan = !pmic_gpio_get_external("c440000.qcom,spmi:qcom,pm6150l@4:pinctrl@c000", 1);
+	volp_scan = !pmic_gpio_get_external("c440000.qcom,spmi:qcom,pm8150l@4:pinctrl@c000", 4);
 
 	/* Scan volp to decide whether to enable k_r S2 reset */
 	cfg = qpnp_get_cfg(pon, PON_KPDPWR_RESIN);
@@ -1243,13 +1208,6 @@ static irqreturn_t qpnp_kpdpwr_irq(int irq, void *_pon)
 
 static irqreturn_t qpnp_kpdpwr_bark_irq(int irq, void *_pon)
 {
-	struct qpnp_pon *pon = _pon;
-	dev_err(pon->dev, "Enter in kpdpwr irq !");
-
-	in_long_press = 1;
-
-	wake_up_process(pon->longpress_task);
-	pon->time_kpdpwr_bark = ktime_get();
 	return IRQ_HANDLED;
 }
 
@@ -1611,7 +1569,6 @@ static int qpnp_pon_config_kpdpwr_init(struct qpnp_pon *pon,
 				       struct device_node *node)
 {
 	int rc;
-	uint pon_rt_sts;
 
 	cfg->state_irq = platform_get_irq_byname(pdev, "kpdpwr");
 	if (cfg->state_irq < 0) {
@@ -1635,8 +1592,6 @@ static int qpnp_pon_config_kpdpwr_init(struct qpnp_pon *pon,
 	cfg->use_bark = of_property_read_bool(node, "qcom,use-bark");
 	if (cfg->use_bark) {
 		cfg->bark_irq = platform_get_irq_byname(pdev, "kpdpwr-bark");
-
-		pon->longpress_task = kthread_create(longpress_kthread, pon, "longpress");
 		if (cfg->bark_irq < 0) {
 			dev_err(pon->dev, "Unable to get kpdpwr-bark irq, rc=%d\n",
 				cfg->bark_irq);
@@ -1650,16 +1605,6 @@ static int qpnp_pon_config_kpdpwr_init(struct qpnp_pon *pon,
 	} else {
 		cfg->s2_cntl_addr = QPNP_PON_KPDPWR_S2_CNTL(pon);
 		cfg->s2_cntl2_addr = QPNP_PON_KPDPWR_S2_CNTL2(pon);
-	}
-
-	if (pon->log_kpd_event) {
-		/* Read PON_RT_STS status during driver initialization. */
-		rc = qpnp_pon_read(pon, QPNP_PON_RT_STS(pon), &pon_rt_sts);
-		if (rc < 0)
-			pr_err("failed to read QPNP_PON_RT_STS rc=%d\n", rc);
-
-		pr_info("KPDPWR status at init=0x%02x, KPDPWR_ON=%d\n",
-			pon_rt_sts, (pon_rt_sts & QPNP_PON_KPDPWR_ON));
 	}
 
 	return 0;
@@ -1902,11 +1847,10 @@ static int qpnp_pon_config_init(struct qpnp_pon *pon,
 		if (rc)
 			return rc;
 
-		if (cfg->pon_type == PON_KPDPWR_RESIN) {
-			comb_reset_time = cfg->s1_timer + cfg->s2_timer;
-			comb_reset_enable = true;
-		}
-
+			if (cfg->pon_type == PON_KPDPWR_RESIN) {
+				comb_reset_time = cfg->s1_timer + cfg->s2_timer;
+				comb_reset_enable = true;
+			}
 		/*
 		 * Get the standard key parameters. This might not be
 		 * specified if there is no key mapping on the reset line.
@@ -2594,7 +2538,6 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
-
 	pon->collect_d_in_progress = false;
 	INIT_DELAYED_WORK(&pon->collect_d_work, collect_d_work_func);
 
@@ -2619,10 +2562,10 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	pon->kpdpwr_dbc_enable = of_property_read_bool(dev->of_node,
 						"qcom,kpdpwr-sw-debounce");
 
+	dev_dbg(dev, "pon->kpdpwr_dbc_enable = %d\n", pon->kpdpwr_dbc_enable);
 	pon->store_hard_reset_reason = of_property_read_bool(dev->of_node,
 					"qcom,store-hard-reset-reason");
 
-	/* xiaomi add forr sm7225 */
 	rc = device_create_file(&pdev->dev, &dev_attr_pshold_reboot);
 	if (rc) {
 		dev_err(&pdev->dev, "sys file creation failed rc: %d\n", rc);
@@ -2648,9 +2591,6 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 		spin_unlock_irqrestore(&spon_list_slock, flags);
 		pon->is_spon = true;
 	}
-
-	pon->log_kpd_event = of_property_read_bool(dev->of_node,
-				"qcom,log-kpd-event");
 
 	/* Register the PON configurations */
 	rc = qpnp_pon_config_init(pon, pdev);

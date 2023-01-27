@@ -2,6 +2,7 @@
  * fs/fs-writeback.c
  *
  * Copyright (C) 2002, Linus Torvalds.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * Contains all the functions related to writing back and waiting
  * upon dirty inodes against superblocks, and writing back dirty
@@ -270,7 +271,6 @@ void __inode_attach_wb(struct inode *inode, struct page *page)
 	if (unlikely(cmpxchg(&inode->i_wb, NULL, wb)))
 		wb_put(wb);
 }
-EXPORT_SYMBOL_GPL(__inode_attach_wb);
 
 /**
  * locked_inode_to_wb_and_lock_list - determine a locked inode's wb and lock it
@@ -1408,6 +1408,7 @@ __writeback_single_inode(struct inode *inode, struct writeback_control *wbc)
 		dirty |= I_DIRTY_TIME;
 		trace_writeback_lazytime(inode);
 	}
+
 	inode->i_state &= ~dirty;
 
 	/*

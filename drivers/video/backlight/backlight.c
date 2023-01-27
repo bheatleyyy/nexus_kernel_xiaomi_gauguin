@@ -182,6 +182,14 @@ int backlight_device_set_brightness(struct backlight_device *bd,
 		if (brightness > bd->props.max_brightness)
 			rc = -EINVAL;
 		else {
+			if ((!bd->use_count && brightness) || (bd->use_count && !brightness)) {
+				pr_info("%s: set brightness to %lu\n", __func__, brightness);
+				if (!bd->use_count)
+					bd->use_count++;
+				else
+					bd->use_count--;
+			}
+
 			pr_debug("set brightness to %lu\n", brightness);
 			bd->props.brightness = brightness;
 			rc = backlight_update_status(bd);
@@ -293,12 +301,45 @@ static void bl_device_release(struct device *dev)
 	kfree(bd);
 }
 
+static ssize_t brightness_clone_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct backlight_device *bd = to_backlight_device(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", bd->props.brightness_clone);
+}
+
+static ssize_t brightness_clone_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc;
+	struct backlight_device *bd = to_backlight_device(dev);
+	unsigned long brightness;
+	char *envp[2];
+
+	rc = kstrtoul(buf, 0, &brightness);
+	if (rc)
+		return rc;
+
+	bd->props.brightness_clone = brightness;
+
+	envp[0] = "SOURCE=sysfs";
+	envp[1] = NULL;
+	kobject_uevent_env(&bd->dev.kobj, KOBJ_CHANGE, envp);
+	sysfs_notify(&bd->dev.kobj, NULL, "brightness_clone");
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(brightness_clone);
+
 static struct attribute *bl_device_attrs[] = {
 	&dev_attr_bl_power.attr,
 	&dev_attr_brightness.attr,
 	&dev_attr_actual_brightness.attr,
 	&dev_attr_max_brightness.attr,
 	&dev_attr_type.attr,
+	&dev_attr_brightness_clone.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(bl_device);
@@ -325,22 +366,11 @@ EXPORT_SYMBOL(backlight_force_update);
 static int bd_cdev_get_max_brightness(struct thermal_cooling_device *cdev,
 					unsigned long *state)
 {
-	int ret = 0;
 	struct backlight_device *bd = (struct backlight_device *)cdev->devdata;
 
-	if (bd->props.max_brightness > 255) {
-		/* cooling_device_stats_setup() will kzalloc() max_brightness *
-		 * max_brightness * 4 bytes memory for trans_table, if max_brightness
-		 * is too big, kzalloc() will panic.
-		 */
-		pr_info("%s: Skip thermal statistics for big max_brightness(%d) to"
-				" avoid panic\n", __func__, bd->props.max_brightness);
-		ret = -1;
-	} else {
-		*state = bd->props.max_brightness;
-	}
+	*state = bd->props.max_brightness;
 
-	return ret;
+	return 0;
 }
 
 static int bd_cdev_get_cur_brightness(struct thermal_cooling_device *cdev,

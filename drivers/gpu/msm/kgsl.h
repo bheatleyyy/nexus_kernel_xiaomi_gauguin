@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2008-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2008-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 #ifndef __KGSL_H
 #define __KGSL_H
@@ -111,7 +112,6 @@ struct kgsl_context;
  * @full_cache_threshold: the threshold that triggers a full cache flush
  * @workqueue: Pointer to a single threaded workqueue
  * @mem_workqueue: Pointer to a workqueue for deferring memory entries
- * @mem_work: Work struct to schedule mem_workqueue flush
  */
 struct kgsl_driver {
 	struct cdev cdev;
@@ -142,7 +142,6 @@ struct kgsl_driver {
 	unsigned int full_cache_threshold;
 	struct workqueue_struct *workqueue;
 	struct workqueue_struct *mem_workqueue;
-	struct work_struct mem_work;
 	struct kthread_worker worker;
 	struct task_struct *worker_thread;
 };
@@ -196,9 +195,11 @@ struct kgsl_memdesc_ops {
  * @pagetable: Pointer to the pagetable that the object is mapped in
  * @hostptr: Kernel virtual address
  * @hostptr_count: Number of threads using hostptr
+ * @useraddr: User virtual address (if applicable)
  * @gpuaddr: GPU virtual address
  * @physaddr: Physical address of the memory object
  * @size: Size of the memory object
+ * @mapsize: Size of memory mapped in userspace
  * @priv: Internal flags and settings
  * @sgt: Scatter gather table for allocated pages
  * @ops: Function hooks for the memdesc memory type
@@ -214,9 +215,11 @@ struct kgsl_memdesc {
 	struct kgsl_pagetable *pagetable;
 	void *hostptr;
 	unsigned int hostptr_count;
+	unsigned long useraddr;
 	uint64_t gpuaddr;
 	phys_addr_t physaddr;
 	uint64_t size;
+	atomic_long_t mapsize;
 	unsigned int priv;
 	struct sg_table *sgt;
 	struct kgsl_memdesc_ops *ops;
@@ -228,6 +231,10 @@ struct kgsl_memdesc {
 	unsigned int cur_bindings;
 	struct file *shmem_filp;
 	/**
+	 * @vma: Pointer to the vm_area_struct this memdesc is mapped to
+	 */
+	struct vm_area_struct *vma;
+	/**
 	 * @lock: Spinlock to protect the pages array
 	 */
 	spinlock_t lock;
@@ -235,11 +242,6 @@ struct kgsl_memdesc {
 	 * @reclaimed_page_count: Total number of pages reclaimed
 	 */
 	int reclaimed_page_count;
-	/*
-	 * @gpuaddr_lock: Spinlock to protect the gpuaddr from being accessed by
-	 * multiple entities trying to map the same SVM region at once
-	 */
-	spinlock_t gpuaddr_lock;
 };
 
 /*
@@ -288,11 +290,6 @@ struct kgsl_mem_entry {
 	struct work_struct work;
 	spinlock_t bind_lock;
 	struct rb_root bind_tree;
-	/**
-	 * @map_count: Count how many vmas this object is mapped in - used for
-	 * debugfs accounting
-	 */
-	atomic_t map_count;
 };
 
 struct kgsl_device_private;
@@ -425,20 +422,6 @@ long kgsl_ioctl_gpu_command(struct kgsl_device_private *dev_priv,
 				unsigned int cmd, void *data);
 long kgsl_ioctl_gpuobj_set_info(struct kgsl_device_private *dev_priv,
 				unsigned int cmd, void *data);
-long kgsl_ioctl_gpu_aux_command(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
-long kgsl_ioctl_timeline_create(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
-long kgsl_ioctl_timeline_wait(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
-long kgsl_ioctl_timeline_query(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
-long kgsl_ioctl_timeline_fence_get(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
-long kgsl_ioctl_timeline_signal(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
-long kgsl_ioctl_timeline_destroy(struct kgsl_device_private *dev_priv,
-		unsigned int cmd, void *data);
 
 long kgsl_ioctl_sparse_phys_alloc(struct kgsl_device_private *dev_priv,
 					unsigned int cmd, void *data);
@@ -456,7 +439,6 @@ long kgsl_ioctl_gpu_sparse_command(struct kgsl_device_private *dev_priv,
 					unsigned int cmd, void *data);
 
 void kgsl_mem_entry_destroy(struct kref *kref);
-void kgsl_mem_entry_destroy_deferred(struct kref *kref);
 
 void kgsl_get_egl_counts(struct kgsl_mem_entry *entry,
 			int *egl_surface_count, int *egl_image_count);
@@ -572,21 +554,6 @@ kgsl_mem_entry_put(struct kgsl_mem_entry *entry)
 {
 	if (entry)
 		kref_put(&entry->refcount, kgsl_mem_entry_destroy);
-}
-
-/**
- * kgsl_mem_entry_put_deferred - Puts refcount and triggers deferred
- *  mem_entry destroy when refcount goes to zero.
- * @entry: memory entry to be put.
- *
- * Use this to put a memory entry when we don't want to block
- * the caller while destroying memory entry.
- */
-static inline void
-kgsl_mem_entry_put_deferred(struct kgsl_mem_entry *entry)
-{
-	if (entry)
-		kref_put(&entry->refcount, kgsl_mem_entry_destroy_deferred);
 }
 
 /*

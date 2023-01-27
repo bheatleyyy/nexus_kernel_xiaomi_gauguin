@@ -27,6 +27,9 @@ extern uint32_t Y_Channel;
 extern uint32_t Key_Channel;
 extern uint8_t AIN_X[40];
 extern uint8_t AIN_Y[40];
+#if TOUCH_KEY_NUM > 0
+extern uint8_t AIN_KEY[8];
+#endif /* #if TOUCH_KEY_NUM > 0 */
 
 extern int32_t PS_Config_Lmt_Short_Rawdata_P[40 * 40];
 

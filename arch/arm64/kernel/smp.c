@@ -602,11 +602,8 @@ static void __init acpi_parse_and_init_cpus(void)
 #define acpi_parse_and_init_cpus(...)	do { } while (0)
 #endif
 void (*__smp_cross_call)(const struct cpumask *, unsigned int);
-/* Dummy vendor field */
 DEFINE_PER_CPU(bool, pending_ipi);
-EXPORT_SYMBOL_GPL(pending_ipi);
 
-static void (*__smp_update_ipi_history_cb)(int cpu);
 /*
  * Enumerate the possible CPU set from the device tree and build the
  * cpu logical map array containing MPIDR values related to logical
@@ -752,12 +749,6 @@ void __init set_smp_cross_call(void (*fn)(const struct cpumask *, unsigned int))
 	__smp_cross_call = fn;
 }
 
-void set_update_ipi_history_callback(void (*fn)(int))
-{
-	__smp_update_ipi_history_cb = fn;
-}
-EXPORT_SYMBOL_GPL(set_update_ipi_history_callback);
-
 static const char *ipi_types[NR_IPI] __tracepoint_string = {
 #define S(x,s)	[x] = s
 	S(IPI_RESCHEDULE, "Rescheduling interrupts"),
@@ -844,11 +835,10 @@ DEFINE_PER_CPU(struct pt_regs, regs_before_stop);
 /*
  * ipi_cpu_stop - handle IPI from smp_send_stop()
  */
-extern int in_long_press;
 static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 {
 	if (system_state == SYSTEM_BOOTING ||
-	    system_state == SYSTEM_RUNNING) && (!in_long_press)) {
+	    system_state == SYSTEM_RUNNING) {
 		per_cpu(regs_before_stop, cpu) = *regs;
 		raw_spin_lock(&stop_lock);
 		pr_crit("CPU%u: stopping\n", cpu);
@@ -969,8 +959,7 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 void smp_send_reschedule(int cpu)
 {
 	BUG_ON(cpu_is_offline(cpu));
-	if (__smp_update_ipi_history_cb)
-		__smp_update_ipi_history_cb(cpu);
+	update_ipi_history(cpu);
 	smp_cross_call_common(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 

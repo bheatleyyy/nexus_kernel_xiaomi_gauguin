@@ -7,13 +7,17 @@ static struct ts_spi_info owner;
 static ssize_t ts_xsfer_state_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	ssize_t ret;
+
 	mutex_lock(&owner.lock);
-	ret = snprintf(buf, PAGE_SIZE, "[%s] used:%d, tmp:%d\n", owner.name, owner.used, owner.tmp);
+	ret = snprintf(buf, PAGE_SIZE, "[%s] used:%d, tmp:%d\n",
+			owner.name, owner.used, owner.tmp);
 	mutex_unlock(&owner.lock);
+
 	return ret;
 }
 
 static DEVICE_ATTR(ts_xsfer_state, S_IRUGO, ts_xsfer_state_show, NULL);
+
 
 /*tmporary get spi device's ownership until invoke tmp_drop_ts_xsfer()
  *
@@ -21,6 +25,7 @@ static DEVICE_ATTR(ts_xsfer_state, S_IRUGO, ts_xsfer_state_show, NULL);
  */
 int32_t tmp_hold_ts_xsfer(struct spi_device **client)
 {
+
 	if (!owner.init) {
 		PDEBUG("ts_xsfer does not exist");
 		return -EINVAL;
@@ -43,8 +48,8 @@ int32_t tmp_hold_ts_xsfer(struct spi_device **client)
 	mutex_unlock(&owner.lock);
 	return 0;
 }
-
 EXPORT_SYMBOL_GPL(tmp_hold_ts_xsfer);
+
 
 /*must balance with tmp_hold_ts_xsfer*/
 void tmp_drop_ts_xsfer(void)
@@ -55,7 +60,6 @@ void tmp_drop_ts_xsfer(void)
 		mutex_unlock(&owner.lock);
 	}
 }
-
 EXPORT_SYMBOL_GPL(tmp_drop_ts_xsfer);
 
 /*make spi device belong to module which invoke this function
@@ -67,7 +71,9 @@ int32_t get_ts_xsfer(const char *name)
 		PDEBUG("name can't be empty\n");
 		return -EINVAL;
 	}
+
 	mutex_lock(&owner.lock);
+
 	if (owner.used) {
 		PDEBUG("ts_xsfer belong to %s, others can't get it\n", owner.name);
 		mutex_unlock(&owner.lock);
@@ -75,11 +81,13 @@ int32_t get_ts_xsfer(const char *name)
 	}
 	owner.used = true;
 	strlcpy(owner.name, name, NAME_MAX_LENS);
+
 	mutex_unlock(&owner.lock);
+
 	return 0;
 }
-
 EXPORT_SYMBOL_GPL(get_ts_xsfer);
+
 
 void put_ts_xsfer(const char *name)
 {
@@ -92,8 +100,9 @@ void put_ts_xsfer(const char *name)
 		PDEBUG("must released by owner\n");
 	}
 }
-
 EXPORT_SYMBOL_GPL(put_ts_xsfer);
+
+
 
 const char *get_owner_name(void)
 {
@@ -101,7 +110,6 @@ const char *get_owner_name(void)
 		return NULL;
 	return owner.name;
 }
-
 EXPORT_SYMBOL_GPL(get_owner_name);
 
 /*test weather spi device belong someone, if not get the device's ownership.
@@ -125,7 +133,6 @@ struct spi_device *test_then_get_spi(const char *name)
 
 	return ret;
 }
-
 EXPORT_SYMBOL_GPL(test_then_get_spi);
 
 static int32_t ts_spi_probe(struct spi_device *client)
@@ -133,7 +140,7 @@ static int32_t ts_spi_probe(struct spi_device *client)
 	int32_t ret;
 	PDEBUG("Start probe\n");
 	mutex_init(&owner.lock);
-	owner.name[0] = '\0';
+	owner.name[0] == '\0';
 	owner.used = false;
 	owner.tmp = false;
 	owner.client = client;

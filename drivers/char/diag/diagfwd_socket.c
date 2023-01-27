@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/slab.h>
@@ -243,22 +244,6 @@ struct diag_socket_info socket_dci_cmd[NUM_PERIPHERALS] = {
 		.name = "NPU_DCI_CMD"
 	}
 };
-
-struct diag_socket_info *diag_get_socket_info_ptr(int type, int peripheral)
-{
-	if (type == TYPE_CMD)
-		return &socket_cmd[peripheral];
-	else if (type == TYPE_CNTL)
-		return &socket_cntl[peripheral];
-	else if (type == TYPE_DATA)
-		return &socket_data[peripheral];
-	else if (type == TYPE_DCI_CMD)
-		return &socket_dci_cmd[peripheral];
-	else if (type == TYPE_DCI)
-		return &socket_dci[peripheral];
-	else
-		return NULL;
-}
 
 struct restart_notifier_block {
 	unsigned int processor;
@@ -627,17 +612,14 @@ static void socket_read_work_fn(struct work_struct *work)
 	err = sock_error(info->hdl->sk);
 	mutex_unlock(&info->socket_info_mutex);
 	if (unlikely(err == -ENETRESET)) {
-		info->reset_flag = 1;
 		socket_close_channel(info);
-		info->reset_flag = 0;
 		if (info->port_type == PORT_TYPE_SERVER)
 			socket_init_work_fn(&info->init_work);
 		diag_ws_release();
 		return;
 	}
 	fwd_info = info->fwd_ctxt;
-	if (info->port_type == PORT_TYPE_SERVER &&
-		(!fwd_info || !atomic_read(&fwd_info->opened)))
+	if ((!fwd_info || !atomic_read(&fwd_info->opened)) && info->port_type == PORT_TYPE_SERVER)
 		diag_socket_drop_data(info);
 
 	if (!atomic_read(&info->opened) && info->port_type == PORT_TYPE_SERVER)
@@ -849,9 +831,7 @@ static int diag_socket_read(void *ctxt, unsigned char *buf, int buf_len)
 			mutex_lock(channel_mutex);
 			diagfwd_channel_read_done(info->fwd_ctxt, buf, 0);
 			mutex_unlock(channel_mutex);
-			info->reset_flag = 1;
 			socket_close_channel(info);
-			info->reset_flag = 0;
 			if (info->port_type == PORT_TYPE_SERVER)
 				socket_init_work_fn(&info->init_work);
 			return read_len;
@@ -1000,7 +980,6 @@ static void __diag_socket_init(struct diag_socket_info *info)
 	info->hdl = NULL;
 	info->fwd_ctxt = NULL;
 	info->data_ready = 0;
-	info->reset_flag = 0;
 	atomic_set(&info->flow_cnt, 0);
 	spin_lock_init(&info->lock);
 	strlcpy(wq_name, info->name, sizeof(wq_name));

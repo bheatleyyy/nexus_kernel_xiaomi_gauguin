@@ -56,7 +56,6 @@ struct nvt_ts_mem_map {
 	uint32_t FFM_ADDR_LOW;
 	uint32_t FFM_ADDR_MID;
 	uint32_t FFM_ADDR_HIGH;
-	uint32_t FW_HISTORY_ADDR;
 };
 
 struct nvt_ts_hw_info {
@@ -102,7 +101,6 @@ static const struct nvt_ts_mem_map NT36675_memory_map = {
 	.FFM_ADDR_LOW             = 0x3F286,
 	.FFM_ADDR_MID             = 0x3F287,
 	.FFM_ADDR_HIGH            = 0x3F288,
-	.FW_HISTORY_ADDR          = 0x23D10,
 };
 
 

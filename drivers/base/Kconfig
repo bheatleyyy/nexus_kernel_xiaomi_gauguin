@@ -114,6 +114,7 @@ config FIRMWARE_IN_KERNEL
 
 	  Say 'N' and let firmware be loaded from userspace.
 
+
 source "drivers/base/firmware_loader/Kconfig"
 
 config FW_CACHE

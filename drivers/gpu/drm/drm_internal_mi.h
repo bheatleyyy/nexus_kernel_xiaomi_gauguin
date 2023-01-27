@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,7 +22,20 @@ int dsi_display_disp_param_get(struct drm_connector *connector,
 int dsi_display_disp_param_set(struct drm_connector *connector,
 				u32 param_type);
 
+ssize_t dsi_display_mipi_reg_write(struct drm_connector *connector,
+				char *buf, size_t count);
+ssize_t dsi_display_mipi_reg_read(struct drm_connector *connector,
+				char *buf);
+
 ssize_t dsi_display_panel_info_read(struct drm_connector *connector,
+				char *buf);
+
+ssize_t dsi_display_fod_get(struct drm_connector *connector,
+				char *buf);
+
+int dsi_display_set_doze_brightness(struct drm_connector *connector,
+				int doze_brightness);
+ssize_t dsi_display_get_doze_brightness(struct drm_connector *connector,
 				char *buf);
 
 #endif /*_DRM_INTERFACE_MI_H_*/

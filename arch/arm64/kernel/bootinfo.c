@@ -21,6 +21,10 @@
 #include <linux/bitops.h>
 #include <linux/input/qpnp-power-on.h>
 
+uint32_t get_hw_version_platform(void);
+uint32_t get_hw_version_major(void);
+uint32_t get_hw_version_minor(void);
+
 static const char * const powerup_reasons[PU_REASON_MAX] = {
 	[PU_REASON_EVENT_KPD]		= "keypad",
 	[PU_REASON_EVENT_RTC]		= "rtc",
@@ -161,15 +165,24 @@ static struct attribute_group attr_group = {
 static int cpumaxfreq_show(struct seq_file *m, void *v)
 {
 	/* value is used for setting cpumaxfreq */
-	seq_printf(m, "2.2\n");
+	uint32_t hwid[3];
+	hwid[0] = get_hw_version_platform();
+	hwid[1] = get_hw_version_major();
+	hwid[2] = get_hw_version_minor();
 
+	/* cpu_max_freq of "Jingdong" version whose hwid is 3.9.3 or 3.9.5
+	* is 2.8GHz*/
+	if ((hwid[0] == 3) && (hwid[1] == 9) && ((hwid[2] == 3) || (hwid[2] == 5)))
+		seq_printf(m, "2.80\n");
+	else
+		seq_printf(m, "2.4\n");
 	return 0;
 }
 
 static int cpumaxfreq_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, &cpumaxfreq_show, NULL);
-};
+}
 
 static const struct file_operations proc_cpumaxfreq_operations = {
 	.open       = cpumaxfreq_open,

@@ -43,7 +43,6 @@
 #include <linux/platform_data/spi-mt65xx.h>
 #endif
 
-#define FW_HISTORY_SIZE	128
 /*Lock down info size*/
 #define NVT_LOCKDOWN_SIZE			8
 
@@ -52,40 +51,49 @@
 #define PINCTRL_STATE_RELEASE		"pmx_ts_release"
 #define MI_DRM_NOTIFIER
 
+#define NVT_DEBUG 1
 #define TOUCH_DISABLE_LPM 1
 #define TOUCH_IRQ_BOOST 2
 
-/* ---GPIO number--- */
+//---GPIO number---
 #define NVTTOUCH_RST_PIN 980
 #define NVTTOUCH_INT_PIN 943
 
 
-/* ---INT trigger mode--- */
-/* #define IRQ_TYPE_EDGE_RISING 1
-#define IRQ_TYPE_EDGE_FALLING 2 */
+//---INT trigger mode---
+//#define IRQ_TYPE_EDGE_RISING 1
+//#define IRQ_TYPE_EDGE_FALLING 2
 #define INT_TRIGGER_TYPE IRQ_TYPE_EDGE_RISING
 
 
-/* ---SPI driver info.--- */
+//---SPI driver info.---
 #define NVT_SPI_NAME "NVT-ts-spi"
-#define NVT_LOG(fmt, args...)	pr_info("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
-#define NVT_ERR(fmt, args...)	pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
 
-/* ---Input device info.--- */
+#if NVT_DEBUG
+#define NVT_LOG(fmt, args...)    pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
+#else
+#define NVT_LOG(fmt, args...)    pr_info("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
+#endif
+#define NVT_ERR(fmt, args...)    pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
+
+//---Input device info.---
 #define NVT_TS_NAME "NVTCapacitiveTouchScreen"
 
 
-/* ---Touch info.--- */
+//---Touch info.---
 #define TOUCH_DEFAULT_MAX_WIDTH 1080
 #define TOUCH_DEFAULT_MAX_HEIGHT 2400
 #define TOUCH_MAX_FINGER_NUM 10
 #define TOUCH_KEY_NUM 0
+#if TOUCH_KEY_NUM > 0
+extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
+#endif
 #define TOUCH_FORCE_NUM 1000
 
 /* Enable only when module have tp reset pin and connected to host */
 #define NVT_TOUCH_SUPPORT_HW_RST 1
 
-/* ---Customerized func.--- */
+//---Customerized func.---
 #define NVT_TOUCH_PROC 1
 #define NVT_TOUCH_EXT_PROC 1
 #define NVT_TOUCH_MP 1
@@ -96,16 +104,17 @@
 #define PACKET_PALM_ON 3
 #define PACKET_PALM_OFF 4
 
+#if WAKEUP_GESTURE
+extern const uint16_t gesture_key_array[];
+#endif
 #define BOOT_UPDATE_FIRMWARE 1
-#define DEFAULT_BOOT_UPDATE_FIRMWARE_FIRST "novatek_ts_fw01.bin"
-#define DEFAULT_MP_UPDATE_FIRMWARE_FIRST   "novatek_ts_mp01.bin"
-#define DEFAULT_BOOT_UPDATE_FIRMWARE_SECOND "novatek_ts_fw02.bin"
-#define DEFAULT_MP_UPDATE_FIRMWARE_SECOND   "novatek_ts_mp02.bin"
+#define DEFAULT_BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
+#define DEFAULT_MP_UPDATE_FIRMWARE_NAME   "novatek_ts_mp.bin"
 #define DEFAULT_DEBUG_FW_NAME "novatek_debug_fw.bin"
 #define DEFAULT_DEBUG_MP_NAME "novatek_debug_mp.bin"
 
 
-/* ---ESD Protect.--- */
+//---ESD Protect.---
 #define NVT_TOUCH_ESD_PROTECT 1
 #define NVT_TOUCH_ESD_CHECK_PERIOD 1500	/* ms */
 #define NVT_TOUCH_WDT_RECOVERY 1
@@ -136,6 +145,8 @@ struct nvt_ts_data {
 	struct delayed_work nvt_fwu_work;
 	struct delayed_work nvt_lockdown_work;
 	struct work_struct switch_mode_work;
+	struct work_struct resist_rf_work;
+	struct timer_list rf_timer;
 	uint16_t addr;
 	int8_t phys[32];
 
@@ -205,7 +216,9 @@ struct nvt_ts_data {
 	int gesture_command_delayed;
 	bool dev_pm_suspend;
 	struct completion dev_pm_suspend_completion;
+	bool palm_sensor_changed;
 	bool palm_sensor_switch;
+	bool rf_resist_cmd_waiting;
 	uint8_t debug_flag;
 };
 
@@ -216,19 +229,20 @@ struct nvt_flash_data{
 #endif
 
 typedef enum {
-	RESET_STATE_INIT = 0xA0,/* IC reset */
-	RESET_STATE_REK,		/* ReK baseline */
-	RESET_STATE_REK_FINISH,	/* baseline is ready */
-	RESET_STATE_NORMAL_RUN,	/* normal run */
+	RESET_STATE_INIT = 0xA0,// IC reset
+	RESET_STATE_REK,		// ReK baseline
+	RESET_STATE_REK_FINISH,	// baseline is ready
+	RESET_STATE_NORMAL_RUN,	// normal run
 	RESET_STATE_MAX  = 0xAF
 } RST_COMPLETE_STATE;
 
 typedef enum {
-	EVENT_MAP_HOST_CMD						= 0x50,
-	EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE	= 0x51,
-	EVENT_MAP_RESET_COMPLETE				= 0x60,
-	EVENT_MAP_FWINFO						= 0x78,
-	EVENT_MAP_PROJECTID						= 0x9A,
+    EVENT_MAP_HOST_CMD                      = 0x50,
+    EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE   = 0x51,
+    EVENT_MAP_RF_RESIST_ADDR                = 0x5D,
+    EVENT_MAP_RESET_COMPLETE                = 0x60,
+    EVENT_MAP_FWINFO                        = 0x78,
+    EVENT_MAP_PROJECTID                     = 0x9A,
 } SPI_EVENT_MAP;
 
 //---SPI READ/WRITE---

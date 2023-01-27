@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #ifndef _IPA3_I_H_
@@ -84,10 +85,6 @@
 #define IPA_MAX_NUM_REQ_CACHE 10
 
 #define NAPI_WEIGHT 64
-
-/* Bit alignment for IPA4.5 GSI rings */
-#define IPA_LOW_16_BIT_MASK (0xFFFF)
-#define IPA4_5_GSI_RING_SIZE_ALIGN (16 * PAGE_SIZE)
 
 #define IPADBG(fmt, args...) \
 	do { \
@@ -276,7 +273,7 @@ enum {
 
 #define IPA_AGGR_MAX_STR_LENGTH (10)
 
-#define CLEANUP_TAG_PROCESS_TIMEOUT 5000
+#define CLEANUP_TAG_PROCESS_TIMEOUT 1000
 
 #define IPA_AGGR_STR_IN_BYTES(str) \
 	(strnlen((str), IPA_AGGR_MAX_STR_LENGTH - 1) + 1)
@@ -460,8 +457,6 @@ enum {
 #define TZ_MEM_PROTECT_REGION_ID 0x10
 
 #define MBOX_TOUT_MS 100
-
-#define IPA_RULE_CNT_MAX 512
 
 struct ipa3_active_client_htable_entry {
 	struct hlist_node list;
@@ -1038,8 +1033,6 @@ struct ipa3_sys_context {
 	atomic_t xmit_eot_cnt;
 	struct tasklet_struct tasklet;
 	struct work_struct tasklet_work;
-	bool skip_eot;
-	u32 eob_drop_cnt;
 
 	/* ordering is important - mutable fields go above */
 	struct ipa3_ep_context *ep;
@@ -1381,7 +1374,6 @@ struct ipa3_stats {
 	u32 flow_disable;
 	u32 tx_non_linear;
 	u32 rx_page_drop_cnt;
-	u32 zero_len_frag_pkt_cnt;
 	struct ipa3_page_recycle_stats page_recycle_stats[2];
 };
 
@@ -1786,7 +1778,6 @@ struct ipa3_app_clock_vote {
  * @rt_rule_cache: routing rule cache
  * @hdr_cache: header cache
  * @hdr_offset_cache: header offset cache
- * @fnr_stats_cache: FnR stats cache
  * @hdr_proc_ctx_cache: processing context cache
  * @hdr_proc_ctx_offset_cache: processing context offset cache
  * @rt_tbl_cache: routing table cache
@@ -1890,7 +1881,6 @@ struct ipa3_context {
 	struct kmem_cache *rt_rule_cache;
 	struct kmem_cache *hdr_cache;
 	struct kmem_cache *hdr_offset_cache;
-	struct kmem_cache *fnr_stats_cache;
 	struct kmem_cache *hdr_proc_ctx_cache;
 	struct kmem_cache *hdr_proc_ctx_offset_cache;
 	struct kmem_cache *rt_tbl_cache;
@@ -3138,6 +3128,8 @@ void ipa3_free_dma_task_for_gsi(void);
 int ipa3_allocate_coal_close_frame(void);
 void ipa3_free_coal_close_frame(void);
 int ipa3_set_clock_plan_from_pm(int idx);
+int ipa3_allocate_coal_close_frame(void);
+void ipa3_free_coal_close_frame(void);
 void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys);
 int ipa3_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs);
 void ipa3_init_imm_cmd_desc(struct ipa3_desc *desc,

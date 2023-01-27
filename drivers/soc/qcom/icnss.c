@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
  */
 
 #define pr_fmt(fmt) "icnss: " fmt
@@ -54,7 +54,6 @@
 
 #define ICNSS_SERVICE_LOCATION_CLIENT_NAME			"ICNSS-WLAN"
 #define ICNSS_WLAN_SERVICE_NAME					"wlan/fw"
-#define ICNSS_CHAIN1_REGULATOR                                  "vdd-3.3-ch1"
 #define ICNSS_THRESHOLD_HIGH		3600000
 #define ICNSS_THRESHOLD_LOW		3450000
 #define ICNSS_THRESHOLD_GUARD		20000
@@ -115,11 +114,11 @@ struct icnss_msa_perm_list_t msa_perm_list[ICNSS_MSA_PERM_MAX] = {
 };
 
 static struct icnss_vreg_info icnss_vreg_info[] = {
-	{NULL, "vdd-cx-mx", 752000, 752000, 0, 0, false, true},
-	{NULL, "vdd-1.8-xo", 1800000, 1800000, 0, 0, false, true},
-	{NULL, "vdd-1.3-rfa", 1304000, 1304000, 0, 0, false, true},
-	{NULL, "vdd-3.3-ch1", 3312000, 3312000, 0, 0, false, true},
-	{NULL, "vdd-3.3-ch0", 3312000, 3312000, 0, 0, false, true},
+	{NULL, "vdd-cx-mx", 752000, 752000, 0, 0, false},
+	{NULL, "vdd-1.8-xo", 1800000, 1800000, 0, 0, false},
+	{NULL, "vdd-1.3-rfa", 1304000, 1304000, 0, 0, false},
+	{NULL, "vdd-3.3-ch1", 3312000, 3312000, 0, 0, false},
+	{NULL, "vdd-3.3-ch0", 3312000, 3312000, 0, 0, false},
 };
 
 #define ICNSS_VREG_INFO_SIZE		ARRAY_SIZE(icnss_vreg_info)
@@ -392,17 +391,8 @@ static int icnss_vreg_on(struct icnss_priv *priv)
 	for (i = 0; i < ICNSS_VREG_INFO_SIZE; i++) {
 		vreg_info = &priv->vreg_info[i];
 
-		if (!vreg_info->reg || !vreg_info->is_supported)
+		if (!vreg_info->reg)
 			continue;
-
-		if (!priv->chain_reg_info_updated &&
-		    !strcmp(ICNSS_CHAIN1_REGULATOR, vreg_info->name)) {
-			priv->chain_reg_info_updated = true;
-			if (!priv->is_chain1_supported) {
-				vreg_info->is_supported = false;
-				continue;
-			}
-		}
 
 		if (vreg_info->min_v || vreg_info->max_v) {
 			icnss_pr_vdbg("Set voltage for regulator %s\n",
@@ -450,7 +440,7 @@ static int icnss_vreg_on(struct icnss_priv *priv)
 	for (; i >= 0; i--) {
 		vreg_info = &priv->vreg_info[i];
 
-		if (!vreg_info->reg || !vreg_info->is_supported)
+		if (!vreg_info->reg)
 			continue;
 
 		regulator_disable(vreg_info->reg);
@@ -475,7 +465,7 @@ static int icnss_vreg_off(struct icnss_priv *priv)
 	for (i = ICNSS_VREG_INFO_SIZE - 1; i >= 0; i--) {
 		vreg_info = &priv->vreg_info[i];
 
-		if (!vreg_info->reg || !vreg_info->is_supported)
+		if (!vreg_info->reg)
 			continue;
 
 		icnss_pr_vdbg("Regulator %s being disabled\n", vreg_info->name);
@@ -653,15 +643,6 @@ bool icnss_is_fw_ready(void)
 		return test_bit(ICNSS_FW_READY, &penv->state);
 }
 EXPORT_SYMBOL(icnss_is_fw_ready);
-
-unsigned long icnss_get_device_config(void)
-{
-	if (!penv)
-		return 0;
-
-	return penv->device_config;
-}
-EXPORT_SYMBOL(icnss_get_device_config);
 
 void icnss_block_shutdown(bool status)
 {
@@ -1083,6 +1064,10 @@ static int icnss_driver_event_server_arrive(void *data)
 
 	set_bit(ICNSS_WLFW_CONNECTED, &penv->state);
 
+	ret = icnss_hw_power_on(penv);
+	if (ret)
+		goto clear_server;
+
 	ret = wlfw_ind_register_send_sync_msg(penv);
 	if (ret < 0) {
 		if (ret == -EALREADY) {
@@ -1090,26 +1075,26 @@ static int icnss_driver_event_server_arrive(void *data)
 			goto qmi_registered;
 		}
 		ignore_assert = true;
-		goto fail;
+		goto err_power_on;
 	}
 
 	if (!penv->msa_va) {
 		icnss_pr_err("Invalid MSA address\n");
 		ret = -EINVAL;
-		goto fail;
+		goto err_power_on;
 	}
 
 	ret = wlfw_msa_mem_info_send_sync_msg(penv);
 	if (ret < 0) {
 		ignore_assert = true;
-		goto fail;
+		goto err_power_on;
 	}
 
 	if (!test_bit(ICNSS_MSA0_ASSIGNED, &penv->state)) {
 		ret = icnss_assign_msa_perm_all(penv,
 						ICNSS_MSA_PERM_WLAN_HW_RW);
 		if (ret < 0)
-			goto fail;
+			goto err_power_on;
 		set_bit(ICNSS_MSA0_ASSIGNED, &penv->state);
 	}
 
@@ -1124,10 +1109,6 @@ static int icnss_driver_event_server_arrive(void *data)
 		ignore_assert = true;
 		goto err_setup_msa;
 	}
-
-	ret = icnss_hw_power_on(penv);
-	if (ret)
-		goto err_setup_msa;
 
 	wlfw_dynamic_feature_mask_send_sync_msg(penv,
 						dynamic_feature_mask);
@@ -1149,6 +1130,10 @@ static int icnss_driver_event_server_arrive(void *data)
 err_setup_msa:
 	icnss_assign_msa_perm_all(penv, ICNSS_MSA_PERM_HLOS_ALL);
 	clear_bit(ICNSS_MSA0_ASSIGNED, &penv->state);
+err_power_on:
+	icnss_hw_power_off(penv);
+clear_server:
+	icnss_clear_server(penv);
 fail:
 	ICNSS_ASSERT(ignore_assert);
 qmi_registered:
@@ -1542,12 +1527,6 @@ static int icnss_driver_event_idle_restart(void *data)
 
 	if (!penv->ops || !penv->ops->idle_restart)
 		return 0;
-
-	if (!test_bit(ICNSS_DRIVER_PROBED, &penv->state) ||
-	    test_bit(ICNSS_DRIVER_UNLOADING, &penv->state)) {
-		icnss_pr_err("Driver unloaded or unloading is in progress, so reject idle restart");
-		return -EINVAL;
-	}
 
 	if (penv->is_ssr || test_bit(ICNSS_PDR, &penv->state) ||
 	    test_bit(ICNSS_REJUVENATE, &penv->state)) {
@@ -2277,9 +2256,6 @@ int icnss_set_fw_log_mode(struct device *dev, uint8_t fw_log_mode)
 	if (!dev)
 		return -ENODEV;
 
-	if (test_bit(SKIP_QMI, &quirks))
-		return 0;
-
 	if (test_bit(ICNSS_FW_DOWN, &penv->state) ||
 	    !test_bit(ICNSS_FW_READY, &penv->state)) {
 		icnss_pr_err("FW down, ignoring fw_log_mode state: 0x%lx\n",
@@ -2373,9 +2349,6 @@ int icnss_wlan_enable(struct device *dev, struct icnss_wlan_enable_cfg *config,
 		      enum icnss_driver_mode mode,
 		      const char *host_version)
 {
-	if (test_bit(SKIP_QMI, &quirks))
-		return 0;
-
 	if (test_bit(ICNSS_FW_DOWN, &penv->state) ||
 	    !test_bit(ICNSS_FW_READY, &penv->state)) {
 		icnss_pr_err("FW down, ignoring wlan_enable state: 0x%lx\n",
@@ -2395,9 +2368,6 @@ EXPORT_SYMBOL(icnss_wlan_enable);
 
 int icnss_wlan_disable(struct device *dev, enum icnss_driver_mode mode)
 {
-	if (test_bit(SKIP_QMI, &quirks))
-		return 0;
-
 	if (test_bit(ICNSS_FW_DOWN, &penv->state)) {
 		icnss_pr_dbg("FW down, ignoring wlan_disable state: 0x%lx\n",
 			     penv->state);
@@ -2640,12 +2610,6 @@ int icnss_idle_restart(struct device *dev)
 
 	if (!priv) {
 		icnss_pr_err("Invalid drvdata: dev %pK", dev);
-		return -EINVAL;
-	}
-
-	if (!test_bit(ICNSS_DRIVER_PROBED, &penv->state) ||
-	    test_bit(ICNSS_DRIVER_UNLOADING, &penv->state)) {
-		icnss_pr_err("Driver unloaded or unloading is in progress, so reject idle restart");
 		return -EINVAL;
 	}
 
@@ -3813,14 +3777,6 @@ static int icnss_smmu_dt_parse(struct icnss_priv *priv)
 	return 0;
 }
 
-static void icnss_read_device_configs(struct icnss_priv *priv)
-{
-	if (of_property_read_bool(priv->pdev->dev.of_node,
-				  "wlan-ipa-disabled")) {
-		set_bit(ICNSS_IPA_DISABLED, &priv->device_config);
-	}
-}
-
 static int icnss_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3844,11 +3800,8 @@ static int icnss_probe(struct platform_device *pdev)
 	priv->pdev = pdev;
 
 	priv->vreg_info = icnss_vreg_info;
-	priv->is_chain1_supported = true;
 
 	icnss_allow_recursive_recovery(dev);
-
-	icnss_read_device_configs(priv);
 
 	ret = icnss_resource_parse(priv);
 	if (ret)

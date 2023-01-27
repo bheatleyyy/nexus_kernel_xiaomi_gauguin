@@ -159,5 +159,5 @@ config PSTORE_LAST_KMSG
 	default n
 	depends on PSTORE
 	help
-	  when the option is enabled, pstore will export a proc filesystem
+	  When the option is enabled, pstore will export a proc filesystem
 	  interface /proc/last_kmsg.

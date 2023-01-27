@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/of.h>
@@ -11,7 +12,6 @@
 #include <linux/msm_gsi.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
-#include <linux/slab.h>
 #include "gsi.h"
 #include "gsi_reg.h"
 #include "gsi_emulation.h"
@@ -812,14 +812,16 @@ static void gsi_handle_general(int ee)
 			GSI_EE_n_CNTXT_GSI_IRQ_CLR_OFFS(ee));
 }
 
+#define GSI_ISR_MAX_ITER 50
+
 static void gsi_handle_irq(void)
 {
 	uint32_t type;
 	int ee = gsi_ctx->per.ee;
+	unsigned long cnt = 0;
 
 	if (!gsi_ctx->per.clk_status_cb())
 		return;
-
 	type = gsi_readl(gsi_ctx->base +
 		GSI_EE_n_CNTXT_TYPE_IRQ_OFFS(ee));
 
@@ -848,6 +850,16 @@ static void gsi_handle_irq(void)
 
 	if (type & GSI_EE_n_CNTXT_TYPE_IRQ_GENERAL_BMSK)
 		gsi_handle_general(ee);
+
+	if (unlikely(++cnt > GSI_ISR_MAX_ITER)) {
+		/*
+		 * Max number of spurious interrupts from hardware.
+		 * Unexpected hardware state.
+		 */
+		GSIERR("Too many spurious interrupt from GSI HW\n");
+		GSI_ASSERT();
+	}
+
 }
 
 static irqreturn_t gsi_isr(int irq, void *ctxt)
@@ -2355,7 +2367,7 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 {
 	struct gsi_chan_ctx *ctx;
 	uint32_t val;
-	int res, size;
+	int res;
 	int ee;
 	enum gsi_ch_cmd_opcode op = GSI_CH_ALLOCATE;
 	uint8_t erindex;
@@ -2416,8 +2428,9 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 	if (props->prot == GSI_CHAN_PROT_GCI)
 		user_data_size += GSI_VEID_MAX;
 
-	size = user_data_size * sizeof(*user_data);
-	user_data = kzalloc(size, GFP_KERNEL);
+	user_data = devm_kzalloc(gsi_ctx->dev,
+		user_data_size * sizeof(*user_data),
+		GFP_KERNEL);
 	if (user_data == NULL) {
 		GSIERR("context not allocated\n");
 		return -GSI_STATUS_RES_ALLOC_FAILURE;
@@ -2442,14 +2455,14 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 		if (res == 0) {
 			GSIERR("chan_hdl=%u timed out\n", props->ch_id);
 			mutex_unlock(&gsi_ctx->mlock);
-			kfree(user_data);
+			devm_kfree(gsi_ctx->dev, user_data);
 			return -GSI_STATUS_TIMED_OUT;
 		}
 		if (ctx->state != GSI_CHAN_STATE_ALLOCATED) {
 			GSIERR("chan_hdl=%u allocation failed state=%d\n",
 					props->ch_id, ctx->state);
 			mutex_unlock(&gsi_ctx->mlock);
-			kfree(user_data);
+			devm_kfree(gsi_ctx->dev, user_data);
 			return -GSI_STATUS_RES_ALLOC_FAILURE;
 		}
 		mutex_unlock(&gsi_ctx->mlock);
@@ -2462,7 +2475,7 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 		GSI_NO_EVT_ERINDEX;
 	if (erindex != GSI_NO_EVT_ERINDEX && erindex >= GSI_EVT_RING_MAX) {
 		GSIERR("invalid erindex %u\n", erindex);
-		kfree(user_data);
+		devm_kfree(gsi_ctx->dev, user_data);
 		return -GSI_STATUS_INVALID_PARAMS;
 	}
 
@@ -2952,8 +2965,7 @@ int gsi_stop_channel(unsigned long chan_hdl)
 
 	if (ctx->state != GSI_CHAN_STATE_STARTED &&
 		ctx->state != GSI_CHAN_STATE_STOP_IN_PROC &&
-		ctx->state != GSI_CHAN_STATE_ERROR &&
-		ctx->state != GSI_CHAN_STATE_FLOW_CONTROL) {
+		ctx->state != GSI_CHAN_STATE_ERROR) {
 		GSIERR("bad state %d\n", ctx->state);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
@@ -3229,7 +3241,7 @@ int gsi_dealloc_channel(unsigned long chan_hdl)
 								ctx->state);
 		mutex_unlock(&gsi_ctx->mlock);
 	}
-	kfree(ctx->user_data);
+	devm_kfree(gsi_ctx->dev, ctx->user_data);
 	ctx->allocated = false;
 	if (ctx->evtr && (ctx->props.prot != GSI_CHAN_PROT_GCI))
 		atomic_dec(&ctx->evtr->chan_ref_cnt);

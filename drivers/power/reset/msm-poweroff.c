@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #include <linux/delay.h>
@@ -65,7 +66,7 @@ static void scm_disable_sdi(void);
 static int download_mode = 1;
 static struct kobject dload_kobj;
 
-int in_panic = 0;
+static int in_panic;
 static int dload_type = SCM_DLOAD_BOTHDUMPS;
 static void *dload_mode_addr;
 static bool dload_mode_enabled;
@@ -532,7 +533,7 @@ static void msm_restart_prepare(const char *cmd)
 					     restart_reason);
 		} else if (!strncmp(cmd, "edl", 3)) {
 			if(0)
-				enable_emergency_dload_mode();
+			enable_emergency_dload_mode();
 		} else {
 			qpnp_pon_set_restart_reason(PON_RESTART_REASON_NORMAL);
 			__raw_writel(0x77665501, restart_reason);

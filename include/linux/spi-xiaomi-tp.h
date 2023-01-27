@@ -24,8 +24,8 @@
 
 #undef PDEBUGG
 #define PDEBUGG(fmt, args...)
-#define NAME_MAX_LENS 32
 
+#define NAME_MAX_LENS 32
 /*lock@:protect this struct
  *name@:indicate who own this device
  *used@:indicate this device has it owner

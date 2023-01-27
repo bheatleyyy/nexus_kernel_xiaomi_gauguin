@@ -1,4 +1,5 @@
 /* Copyright (c) 2011-2014 PLUMgrid, http://plumgrid.com
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of version 2 of the GNU General Public
@@ -1903,8 +1904,7 @@ static const struct bpf_map *bpf_map_from_imm(const struct bpf_prog *prog,
 	return NULL;
 }
 
-static struct bpf_insn *bpf_insn_prepare_dump(const struct bpf_prog *prog,
-					      const struct cred *f_cred)
+static struct bpf_insn *bpf_insn_prepare_dump(const struct bpf_prog *prog)
 {
 	const struct bpf_map *map;
 	struct bpf_insn *insns;
@@ -1926,7 +1926,7 @@ static struct bpf_insn *bpf_insn_prepare_dump(const struct bpf_prog *prog,
 		    insns[i].code == (BPF_JMP | BPF_CALL_ARGS)) {
 			if (insns[i].code == (BPF_JMP | BPF_CALL_ARGS))
 				insns[i].code = BPF_JMP | BPF_CALL;
-			if (!bpf_dump_raw_ok(f_cred))
+			if (!bpf_dump_raw_ok())
 				insns[i].imm = 0;
 			continue;
 		}
@@ -1943,7 +1943,7 @@ static struct bpf_insn *bpf_insn_prepare_dump(const struct bpf_prog *prog,
 			continue;
 		}
 
-		if (!bpf_dump_raw_ok(f_cred) &&
+		if (!bpf_dump_raw_ok() &&
 		    imm == (unsigned long)prog->aux) {
 			insns[i].imm = 0;
 			insns[i + 1].imm = 0;
@@ -1954,8 +1954,7 @@ static struct bpf_insn *bpf_insn_prepare_dump(const struct bpf_prog *prog,
 	return insns;
 }
 
-static int bpf_prog_get_info_by_fd(struct file *file,
-				   struct bpf_prog *prog,
+static int bpf_prog_get_info_by_fd(struct bpf_prog *prog,
 				   const union bpf_attr *attr,
 				   union bpf_attr __user *uattr)
 {
@@ -2012,11 +2011,11 @@ static int bpf_prog_get_info_by_fd(struct file *file,
 		struct bpf_insn *insns_sanitized;
 		bool fault;
 
-		if (prog->blinded && !bpf_dump_raw_ok(file->f_cred)) {
+		if (prog->blinded && !bpf_dump_raw_ok()) {
 			info.xlated_prog_insns = 0;
 			goto done;
 		}
-		insns_sanitized = bpf_insn_prepare_dump(prog, file->f_cred);
+		insns_sanitized = bpf_insn_prepare_dump(prog);
 		if (!insns_sanitized)
 			return -ENOMEM;
 		uinsns = u64_to_user_ptr(info.xlated_prog_insns);
@@ -2050,7 +2049,7 @@ static int bpf_prog_get_info_by_fd(struct file *file,
 	}
 
 	if (info.jited_prog_len && ulen) {
-		if (bpf_dump_raw_ok(file->f_cred)) {
+		if (bpf_dump_raw_ok()) {
 			uinsns = u64_to_user_ptr(info.jited_prog_insns);
 			ulen = min_t(u32, info.jited_prog_len, ulen);
 
@@ -2085,7 +2084,7 @@ static int bpf_prog_get_info_by_fd(struct file *file,
 	ulen = info.nr_jited_ksyms;
 	info.nr_jited_ksyms = prog->aux->func_cnt;
 	if (info.nr_jited_ksyms && ulen) {
-		if (bpf_dump_raw_ok(file->f_cred)) {
+		if (bpf_dump_raw_ok()) {
 			u64 __user *user_ksyms;
 			ulong ksym_addr;
 			u32 i;
@@ -2109,7 +2108,7 @@ static int bpf_prog_get_info_by_fd(struct file *file,
 	ulen = info.nr_jited_func_lens;
 	info.nr_jited_func_lens = prog->aux->func_cnt;
 	if (info.nr_jited_func_lens && ulen) {
-		if (bpf_dump_raw_ok(file->f_cred)) {
+		if (bpf_dump_raw_ok()) {
 			u32 __user *user_lens;
 			u32 func_len, i;
 
@@ -2134,8 +2133,7 @@ done:
 	return 0;
 }
 
-static int bpf_map_get_info_by_fd(struct file *file,
-				  struct bpf_map *map,
+static int bpf_map_get_info_by_fd(struct bpf_map *map,
 				  const union bpf_attr *attr,
 				  union bpf_attr __user *uattr)
 {
@@ -2177,8 +2175,7 @@ static int bpf_map_get_info_by_fd(struct file *file,
 	return 0;
 }
 
-static int bpf_btf_get_info_by_fd(struct file *file,
-				  struct btf *btf,
+static int bpf_btf_get_info_by_fd(struct btf *btf,
 				  const union bpf_attr *attr,
 				  union bpf_attr __user *uattr)
 {
@@ -2210,13 +2207,13 @@ static int bpf_obj_get_info_by_fd(const union bpf_attr *attr,
 		return -EBADFD;
 
 	if (f.file->f_op == &bpf_prog_fops)
-		err = bpf_prog_get_info_by_fd(f.file, f.file->private_data, attr,
+		err = bpf_prog_get_info_by_fd(f.file->private_data, attr,
 					      uattr);
 	else if (f.file->f_op == &bpf_map_fops)
-		err = bpf_map_get_info_by_fd(f.file, f.file->private_data, attr,
+		err = bpf_map_get_info_by_fd(f.file->private_data, attr,
 					     uattr);
 	else if (f.file->f_op == &btf_fops)
-		err = bpf_btf_get_info_by_fd(f.file, f.file->private_data, attr, uattr);
+		err = bpf_btf_get_info_by_fd(f.file->private_data, attr, uattr);
 	else
 		err = -EINVAL;
 
@@ -2376,6 +2373,31 @@ out:
 	return err;
 }
 
+static int bpf_get_comm_hash(union bpf_attr *attr)
+{
+	void __user *uhash = u64_to_user_ptr(attr->hash);
+	int pid = attr->pid;
+	struct task_struct *p_task = NULL;
+	const char *str;
+	int c;
+	u64 hash = 5381;
+
+	rcu_read_lock();
+	p_task = find_task_by_pid_ns(pid, &init_pid_ns);
+	if (p_task) {
+		get_task_struct(p_task);
+		str = p_task->comm;
+		while ((c = *str++))
+			hash = ((hash << 5) + hash) + c;
+		put_task_struct(p_task);
+	}
+	rcu_read_unlock();
+
+	if (copy_to_user(uhash, &hash, sizeof(hash)) != 0)
+		return -EFAULT;
+	return 0;
+}
+
 SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, size)
 {
 	union bpf_attr attr;
@@ -2463,6 +2485,9 @@ SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, siz
 		break;
 	case BPF_TASK_FD_QUERY:
 		err = bpf_task_fd_query(&attr, uattr);
+		break;
+	case BPF_GET_COMM_HASH:
+		err = bpf_get_comm_hash(&attr);
 		break;
 	default:
 		err = -EINVAL;

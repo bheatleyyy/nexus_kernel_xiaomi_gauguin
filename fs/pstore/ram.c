@@ -2,8 +2,8 @@
  * RAM Oops/Panic logger
  *
  * Copyright (C) 2010 Marco Stornelli <marco.stornelli@gmail.com>
- * Copyright (C) 2011 Kees Cook <keescook@chromium.org>
  * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2011 Kees Cook <keescook@chromium.org>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -969,7 +969,7 @@ static void __init ramoops_register_dummy(void)
 	}
 }
 
-struct ramoops_platform_data ramoops_data;
+static struct ramoops_platform_data ramoops_data;
 
 static struct platform_device ramoops_dev  = {
 	.name = "ramoops",

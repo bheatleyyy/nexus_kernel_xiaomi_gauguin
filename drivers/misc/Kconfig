@@ -4,7 +4,6 @@
 
 menu "Misc devices"
 
-
 config SPI_XIAOMI_TP
         bool
         depends on SPI
@@ -602,6 +601,11 @@ config TEST_IRQ_REQUESTER
 
 	  If in doubt, say N.
 
+config SIMTRAY_STATUS
+	tristate "Xiaomi SIM tray status"
+	default n
+	help
+	  Say 'y' here to support SIM tray GPIO detection
 config WIGIG_SENSING_SPI
 	tristate "Sensing over 60GHz using wil6210 / SPI bus"
 	depends on SPI && WIL6210
@@ -630,15 +634,6 @@ config QTI_MAXIM_FAN_CONTROLLER
 	  Also, this driver initializes the power for the fan controller
 	  and exposes sysfs node to control different speeds of fan.
 
-config KINECTICS_XR_NORDIC
-	tristate "Nordic Misc driver support in XR Reference devices"
-	help
-	  This driver supports Nordic Chip in XR Reference devices.
-	  This driver interfaces with SoC to Nordic chip over SPI and contains
-	  code to power up the Nordic chip and initializes SPI interface. Also,
-	  this also parses the gpios and interrupts from device tree and sets
-	  the gpios and interrupt handler for handling the interrupt.
-
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -653,8 +648,8 @@ source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/ocxl/Kconfig"
 source "drivers/misc/cardreader/Kconfig"
+source "drivers/misc/aw8624_haptic/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
-source "drivers/misc/qrc/Kconfig"
 endmenu
 
 config OKL4_USER_VIPC
@@ -675,9 +670,3 @@ config OKL4_LINK_SHBUF
 	      transport. This driver presents the link to Linux as a character device
 	      which can be written to or read from to access the shared memory. An ioctl
 	      on the device is used to send a virtual interrupt to the partner cell.
-
-config GPIO_TESTING_MODE
-	tristate "A simple GPIO testing mode driver"
-	default n
-	help
-	  Enable driver for a simple testing mode detection

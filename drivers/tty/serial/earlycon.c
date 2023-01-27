@@ -209,7 +209,6 @@ bool earlycon_acpi_spcr_enable __initdata;
 bool is_early_cons_enabled;
 #endif
 
-
 /* early_param wrapper for setup_earlycon() */
 static int __init param_setup_earlycon(char *buf)
 {

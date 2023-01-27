@@ -436,7 +436,6 @@
 #define BQ2597X_REG_13					0x13
 #define BQ2597X_DEV_ID_MASK				0x0F
 #define BQ2597X_DEV_ID_SHIFT				0
-#define BQ25968_DEV_ID					0x16
 
 /* Register 14h */
 #define BQ2597X_REG_14					0x14

@@ -39,4 +39,3 @@ struct xlogchar_dev {
 };
 
 #endif
-

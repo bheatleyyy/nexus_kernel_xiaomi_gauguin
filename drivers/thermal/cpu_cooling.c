@@ -5,7 +5,6 @@
  *  Copyright (C) 2012  Amit Daniel <amit.kachhap@linaro.org>
  *
  *  Copyright (C) 2014  Viresh Kumar <viresh.kumar@linaro.org>
- *  Copyright (c) 2022  Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *  This program is free software; you can redistribute it and/or modify
@@ -159,7 +158,6 @@ static int cpufreq_thermal_notifier(struct notifier_block *nb,
 							clipped_freq);
 		break;
 	}
-
 	mutex_unlock(&cooling_list_lock);
 
 	return NOTIFY_OK;
@@ -365,7 +363,7 @@ static int cpufreq_set_min_state(struct thermal_cooling_device *cdev,
 	unsigned int floor_freq;
 
 	if (state > cpufreq_cdev->max_level)
-		return -EINVAL;
+		state = cpufreq_cdev->max_level;
 
 	if (cpufreq_cdev->cpufreq_floor_state == state)
 		return 0;
@@ -420,7 +418,7 @@ static int cpufreq_set_cur_state(struct thermal_cooling_device *cdev,
 	 * can handle the CPU freq mitigation, if not, notify cpufreq
 	 * framework.
 	 */
-	if (cpufreq_cdev->plat_ops &&
+        if (cpufreq_cdev->plat_ops &&
 		cpufreq_cdev->plat_ops->ceil_limit)
 		cpufreq_cdev->plat_ops->ceil_limit(cpufreq_cdev->policy->cpu,
 							clip_freq);

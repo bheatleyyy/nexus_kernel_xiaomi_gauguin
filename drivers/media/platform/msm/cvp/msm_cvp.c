@@ -3,8 +3,6 @@
  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/workqueue.h>
-
 #include "msm_cvp.h"
 #include "cvp_hfi.h"
 #include <synx_api.h>
@@ -16,8 +14,6 @@ struct cvp_power_level {
 	unsigned long op_core_sum;
 	unsigned long bw_sum;
 };
-
-static struct workqueue_struct *fence_workqueue;
 
 void print_internal_buffer(u32 tag, const char *str,
 		struct msm_cvp_inst *inst, struct msm_cvp_internal_buffer *cbuf)
@@ -927,7 +923,9 @@ static int msm_cvp_session_process_hfi(
 		dprintk(CVP_ERR, "%s incorrect packet %d, %x\n", __func__,
 				in_pkt->pkt_data[0],
 				in_pkt->pkt_data[1]);
-		goto exit;
+		offset = in_offset;
+		buf_num = in_buf_num;
+		signal = HAL_NO_RESP;
 	} else {
 		offset = cvp_hfi_defs[pkt_idx].buf_offset;
 		buf_num = cvp_hfi_defs[pkt_idx].buf_num;
@@ -996,9 +994,8 @@ exit:
 }
 
 #define CVP_FENCE_RUN	0x100
-static void msm_cvp_thread_fence_run(struct work_struct *data)
+static int msm_cvp_thread_fence_run(void *data)
 {
-
 	int i, rc = 0;
 	unsigned long timeout_ms = 100;
 	int synx_obj;
@@ -1017,12 +1014,12 @@ static void msm_cvp_thread_fence_run(struct work_struct *data)
 		do_exit(-EINVAL);
 	}
 
-	fence_thread_data =
-		container_of(data, struct msm_cvp_fence_thread_data, work);
+	fence_thread_data = data;
 	inst = fence_thread_data->inst;
 	if (!inst) {
 		dprintk(CVP_ERR, "%s Wrong inst %pK\n", __func__, inst);
 		rc = -EINVAL;
+		return rc;
 	}
 	inst->cur_cmd_type = CVP_FENCE_RUN;
 	in_fence_pkt = (struct cvp_kmd_hfi_fence_packet *)
@@ -1159,7 +1156,6 @@ static void msm_cvp_thread_fence_run(struct work_struct *data)
 				}
 				rc = synx_wait(synx_obj, timeout_ms);
 				if (rc) {
-					rc = synx_release(synx_obj);
 					dprintk(CVP_ERR,
 						"%s: synx_wait failed\n",
 						__func__);
@@ -1212,7 +1208,6 @@ static void msm_cvp_thread_fence_run(struct work_struct *data)
 		}
 		rc = synx_signal(synx_obj, synx_state);
 		if (rc) {
-			rc = synx_release(synx_obj);
 			dprintk(CVP_ERR, "%s: synx_signal failed\n", __func__);
 			goto exit;
 		}
@@ -1241,7 +1236,6 @@ static void msm_cvp_thread_fence_run(struct work_struct *data)
 				}
 				rc = synx_wait(synx_obj, timeout_ms);
 				if (rc) {
-					rc = synx_release(synx_obj);
 					dprintk(CVP_ERR,
 						"%s: synx_wait %d failed\n",
 						__func__, i<<1);
@@ -1292,7 +1286,6 @@ static void msm_cvp_thread_fence_run(struct work_struct *data)
 				}
 				rc = synx_signal(synx_obj, synx_state);
 				if (rc) {
-					rc = synx_release(synx_obj);
 					dprintk(CVP_ERR,
 						"%s: synx_signal %d failed\n",
 						__func__, i<<1);
@@ -1321,6 +1314,7 @@ exit:
 	kmem_cache_free(cvp_driver->fence_data_cache, fence_thread_data);
 	inst->cur_cmd_type = 0;
 	cvp_put_inst(inst);
+	do_exit(rc);
 }
 
 static int msm_cvp_session_process_hfi_fence(
@@ -1328,6 +1322,7 @@ static int msm_cvp_session_process_hfi_fence(
 	struct cvp_kmd_arg *arg)
 {
 	static int thread_num;
+	struct task_struct *thread;
 	int rc = 0;
 	char thread_fence_name[32];
 	int pkt_idx;
@@ -1394,10 +1389,6 @@ static int msm_cvp_session_process_hfi_fence(
 	if (rc)
 		goto free_and_exit;
 
-	if (fence_workqueue == NULL) {
-		fence_workqueue = alloc_workqueue("cvp_fence_workqueue", __WQ_LEGACY | WQ_MEM_RECLAIM | WQ_UNBOUND | WQ_HIGHPRI, 1);
-	}
-
 	thread_num = thread_num + 1;
 	fence_thread_data->inst = inst;
 	fence_thread_data->device_id = (unsigned int)inst->core->id;
@@ -1405,10 +1396,15 @@ static int msm_cvp_session_process_hfi_fence(
 				sizeof(struct cvp_kmd_hfi_fence_packet));
 	fence_thread_data->arg_type = arg->type;
 	snprintf(thread_fence_name, sizeof(thread_fence_name),
-			"thread_fence_%d", thread_num);
+				"thread_fence_%d", thread_num);
+	thread = kthread_run(msm_cvp_thread_fence_run,
+			fence_thread_data, thread_fence_name);
+	if (!thread) {
+		dprintk(CVP_ERR, "%s fail to create kthread\n", __func__);
+		rc = -ECHILD;
+		goto free_and_exit;
+	}
 
-	INIT_WORK(&fence_thread_data->work, msm_cvp_thread_fence_run);
-	queue_work(fence_workqueue, &fence_thread_data->work);
 	return 0;
 
 free_and_exit:

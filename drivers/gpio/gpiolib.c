@@ -4473,6 +4473,7 @@ static const struct seq_operations gpiolib_seq_ops = {
 
 static int gpiolib_open(struct inode *inode, struct file *file)
 {
+
 	return seq_open(file, &gpiolib_seq_ops);
 }
 
@@ -4489,6 +4490,7 @@ static int __init gpiolib_debugfs_init(void)
 	/* /sys/kernel/debug/gpio */
 	(void) debugfs_create_file("gpio", S_IFREG | S_IRUGO,
 				NULL, NULL, &gpiolib_operations);
+
 	return 0;
 }
 subsys_initcall(gpiolib_debugfs_init);

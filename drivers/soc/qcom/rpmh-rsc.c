@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 #define pr_fmt(fmt) "%s " fmt, KBUILD_MODNAME
@@ -127,7 +128,7 @@ static int tcs_invalidate(struct rsc_drv *drv, int type)
 
 	tcs = get_tcs_of_type(drv, type);
 
-	rpmh_spin_lock(&drv->lock);
+	spin_lock(&drv->lock);
 	if (bitmap_empty(tcs->slots, MAX_TCS_SLOTS))
 		goto done;
 
@@ -142,7 +143,7 @@ static int tcs_invalidate(struct rsc_drv *drv, int type)
 	bitmap_zero(tcs->slots, MAX_TCS_SLOTS);
 
 done:
-	rpmh_spin_unlock(&drv->lock);
+	spin_unlock(&drv->lock);
 	return ret;
 }
 
@@ -406,7 +407,7 @@ static int tcs_write(struct rsc_drv *drv, const struct tcs_request *msg)
 	if (IS_ERR(tcs))
 		return PTR_ERR(tcs);
 
-	rpmh_spin_lock(&drv->lock);
+	spin_lock(&drv->lock);
 	if (msg->state == RPMH_ACTIVE_ONLY_STATE && drv->in_solver_mode) {
 		ret = -EINVAL;
 		goto done_write;
@@ -435,7 +436,7 @@ static int tcs_write(struct rsc_drv *drv, const struct tcs_request *msg)
 	__tcs_trigger(drv, tcs_id, true);
 
 done_write:
-	rpmh_spin_unlock(&drv->lock);
+	spin_unlock(&drv->lock);
 	return ret;
 }
 
@@ -449,11 +450,9 @@ done_write:
  * Return: 0 on success, -EINVAL on error.
  * Note: This call blocks until a valid data is written to the TCS.
  */
-extern int in_long_press;
 int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 {
 	int ret;
-	int count = 0;
 
 	if (!msg || !msg->cmds || !msg->num_cmds ||
 	    msg->num_cmds > MAX_RPMH_PAYLOAD) {
@@ -467,17 +466,6 @@ int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 			pr_info_ratelimited("DRV:%s TCS Busy, retrying RPMH message send: addr=%#x\n",
 					    drv->name, msg->cmds[0].addr);
 			udelay(10);
-			count++;
-		}
-
-		if (((count == 50000) && (in_long_press))) {
-			printk(KERN_ERR "Long Press or Panic :TCS Busy but log saved!");
-			break;
-		}
-
-		if ((count == 50000) && (oops_in_progress)) {
-			printk(KERN_ERR " Panic :TCS Busy but log saved!");
-			break;
 		}
 	} while (ret == -EBUSY);
 
@@ -552,12 +540,12 @@ static int tcs_ctrl_write(struct rsc_drv *drv, const struct tcs_request *msg)
 	if (IS_ERR(tcs))
 		return PTR_ERR(tcs);
 
-	rpmh_spin_lock(&drv->lock);
+	spin_lock(&drv->lock);
 	/* find the TCS id and the command in the TCS to write to */
 	ret = find_slots(tcs, msg, &tcs_id, &cmd_id);
 	if (!ret)
 		__tcs_buffer_write(drv, tcs_id, cmd_id, msg);
-	rpmh_spin_unlock(&drv->lock);
+	spin_unlock(&drv->lock);
 
 	return ret;
 }
@@ -583,15 +571,15 @@ void rpmh_rsc_mode_solver_set(struct rsc_drv *drv, bool enable)
 	if (!tcs->num_tcs)
 		tcs = get_tcs_of_type(drv, WAKE_TCS);
 again:
-	rpmh_spin_lock(&drv->lock);
+	spin_lock(&drv->lock);
 	for (m = tcs->offset; m < tcs->offset + tcs->num_tcs; m++) {
 		if (!tcs_is_free(drv, m)) {
-			rpmh_spin_unlock(&drv->lock);
+			spin_unlock(&drv->lock);
 			goto again;
 		}
 	}
 	drv->in_solver_mode = enable;
-	rpmh_spin_unlock(&drv->lock);
+	spin_unlock(&drv->lock);
 }
 
 /**
@@ -691,11 +679,11 @@ static void print_tcs_info(struct rsc_drv *drv, int tcs_id, unsigned long *accl)
 
 	data = read_tcs_reg(drv, RSC_DRV_CONTROL, tcs_id, 0);
 	irq_sts = read_tcs_reg(drv, RSC_DRV_IRQ_STATUS, 0, 0);
-	pr_warn("Request: tcs-in-use:%s active_tcs=%s(%d) state=%d wait_for_compl=%u]\n",
+	pr_err("Request: tcs-in-use:%s active_tcs=%s(%d) state=%d wait_for_compl=%u]\n",
 		(in_use ? "YES" : "NO"),
 		((tcs_grp->type == ACTIVE_TCS) ? "YES" : "NO"),
 		tcs_grp->type, req->state, req->wait_for_compl);
-	pr_warn("TCS=%d [ctrlr-sts:%s amc-mode:0x%x irq-sts:%s]\n",
+	pr_err("TCS=%d [ctrlr-sts:%s amc-mode:0x%x irq-sts:%s]\n",
 		tcs_id, sts ? "IDLE" : "BUSY", data,
 		(irq_sts & BIT(tcs_id)) ? "COMPLETED" : "PENDING");
 
@@ -704,7 +692,7 @@ static void print_tcs_info(struct rsc_drv *drv, int tcs_id, unsigned long *accl)
 		data = read_tcs_reg(drv, RSC_DRV_CMD_DATA, tcs_id, i);
 		msgid = read_tcs_reg(drv, RSC_DRV_CMD_MSGID, tcs_id, i);
 		sts = read_tcs_reg(drv, RSC_DRV_CMD_STATUS, tcs_id, i);
-		pr_warn("\tCMD=%d [addr=0x%x data=0x%x hdr=0x%x sts=0x%x enabled=1]\n",
+		pr_err("\tCMD=%d [addr=0x%x data=0x%x hdr=0x%x sts=0x%x enabled=1]\n",
 			i, addr, data, msgid, sts);
 		if (!(sts & CMD_STATUS_ISSUED))
 			continue;
@@ -722,7 +710,7 @@ void rpmh_rsc_debug(struct rsc_drv *drv, struct completion *compl)
 	unsigned long accl = 0;
 	char str[20] = "";
 
-	pr_warn("RSC:%s\n", drv->name);
+	pr_err("RSC:%s\n", drv->name);
 
 	for (i = 0; i < drv->num_tcs; i++) {
 		if (!test_bit(i, drv->tcs_in_use))
@@ -737,7 +725,7 @@ void rpmh_rsc_debug(struct rsc_drv *drv, struct completion *compl)
 	}
 
 	irq_get_irqchip_state(drv->irq, IRQCHIP_STATE_PENDING, &irq_sts);
-	pr_warn("HW IRQ %lu is %s at GIC\n", rsc_irq_data->hwirq,
+	pr_err("HW IRQ %lu is %s at GIC\n", rsc_irq_data->hwirq,
 		irq_sts ? "PENDING" : "NOT PENDING");
 	pr_warn("Completion is %s to finish\n",
 		completion_done(compl) ? "PENDING" : "NOT PENDING");
@@ -748,10 +736,10 @@ void rpmh_rsc_debug(struct rsc_drv *drv, struct completion *compl)
 	}
 
 	if (busy && !irq_sts)
-		pr_warn("ERROR:Accelerator(s) { %s } at AOSS did not respond\n",
+		pr_err("ERROR:Accelerator(s) { %s } at AOSS did not respond\n",
 			str);
 	else if (irq_sts)
-		pr_warn("ERROR:Possible lockup in Linux\n");
+		pr_err("ERROR:Possible lockup in Linux\n");
 
 	/*
 	 * The TCS(s) are busy waiting, we have no way to recover from this.

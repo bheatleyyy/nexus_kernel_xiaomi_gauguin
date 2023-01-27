@@ -262,8 +262,8 @@ static inline void devm_gpio_free(struct device *dev, unsigned int gpio)
 
 struct gpio_chip *find_chip_by_name(const char *name)
 {
-       WARN_ON(1);
-       return NULL;
+	WARN_ON(1);
+	return NULL;
 }
 
 #endif /* ! CONFIG_GPIOLIB */

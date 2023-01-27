@@ -265,4 +265,3 @@ module_exit(xlogchar_exit);
 
 MODULE_DESCRIPTION("Xlog Char Driver");
 MODULE_LICENSE("GPL v2");
-

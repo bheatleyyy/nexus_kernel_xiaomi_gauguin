@@ -37,7 +37,6 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
-
 #ifdef CONFIG_PSTORE_LAST_KMSG
 #include <linux/proc_fs.h>
 #endif
@@ -104,11 +103,11 @@ static void *pstore_ftrace_seq_next(struct seq_file *s, void *v, loff_t *pos)
 	struct pstore_private *ps = s->private;
 	struct pstore_ftrace_seq_data *data = v;
 
-	(*pos)++;
 	data->off += REC_SIZE;
 	if (data->off + REC_SIZE > ps->total_size)
 		return NULL;
 
+	(*pos)++;
 	return data;
 }
 
@@ -117,9 +116,6 @@ static int pstore_ftrace_seq_show(struct seq_file *s, void *v)
 	struct pstore_private *ps = s->private;
 	struct pstore_ftrace_seq_data *data = v;
 	struct pstore_ftrace_record *rec;
-
-	if (!data)
-		return 0;
 
 	rec = (struct pstore_ftrace_record *)(ps->record->buf + data->off);
 
@@ -303,6 +299,7 @@ bool pstore_is_mounted(void)
 }
 
 #ifdef CONFIG_PSTORE_LAST_KMSG
+
 static char *console_buffer;
 static ssize_t console_bufsize;
 
@@ -518,7 +515,6 @@ static struct file_system_type pstore_fs_type = {
 int __init pstore_init_fs(void)
 {
 	int err;
-
 #ifdef CONFIG_PSTORE_LAST_KMSG
 	struct proc_dir_entry *last_kmsg_entry = NULL;
 #endif
@@ -540,7 +536,6 @@ int __init pstore_init_fs(void)
 		goto out;
     }
 #endif
-
 out:
 	return err;
 }

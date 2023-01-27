@@ -123,18 +123,18 @@ short Read_RomID(unsigned char *RomID)
 		return ERROR_NO_DEVICE;
 	}
 
-	ds_info("Ready to write 0x33 to maxim IC!\n");
+	ds_dbg("Ready to write 0x33 to maxim IC!\n");
 	write_byte(CMD_READ_ROM);
 	Delay_us(10);
 	for (i = 0; i < 8; i++)
 		RomID[i] = read_byte();
 
-	ds_info("RomID = %02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x\n",
+	ds_dbg("RomID = %02x,%02x,%02x,%02x,%02x,%02x,%02x,%02x\n",
 	RomID[0], RomID[1], RomID[2], RomID[3],
 	RomID[4], RomID[5], RomID[6], RomID[7]);
 
 	crc = crc_low_first(RomID, 7);
-	ds_info("crc_low_first = %02x\n", crc);
+	ds_dbg("crc_low_first = %02x\n", crc);
 
 	if (crc == RomID[7]) {
 		if (flag_mi_status == 0)
@@ -1008,9 +1008,9 @@ static int ds28el16_get_page_data_retry(int page, unsigned char *data)
 			data[4], data[5], data[6], data[7],
 			data[8], data[9], data[10], data[11],
 			data[12], data[13], data[14], data[15]);
-			ds_info("flag_mi_page0_data is %d\n", flag_mi_page0_data);
-			ds_info("mi_page0_data data:\n");
-			ds_info("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+			ds_dbg("flag_mi_page0_data is %d\n", flag_mi_page0_data);
+			ds_dbg("mi_page0_data data:\n");
+			ds_dbg("%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
 			mi_page0_data[0], mi_page0_data[1], mi_page0_data[2], mi_page0_data[3],
 			mi_page0_data[4], mi_page0_data[5], mi_page0_data[6], mi_page0_data[7],
 			mi_page0_data[8], mi_page0_data[9], mi_page0_data[10], mi_page0_data[11],

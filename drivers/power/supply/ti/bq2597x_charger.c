@@ -164,12 +164,12 @@ enum hvdcp3_type {
 	HVDCP3_CLASSB_27W,
 };
 
-#define BUS_OVP_FOR_QC			10500
+#define BUS_OVP_FOR_QC			10000
 #define BUS_OVP_ALARM_FOR_QC			9500
 #define BUS_OCP_FOR_QC_CLASS_A			3250
 #define BUS_OCP_ALARM_FOR_QC_CLASS_A			2000
-#define BUS_OCP_FOR_QC_CLASS_B			4000
-#define BUS_OCP_ALARM_FOR_QC_CLASS_B			3000
+#define BUS_OCP_FOR_QC_CLASS_B			3750
+#define BUS_OCP_ALARM_FOR_QC_CLASS_B			2800
 
 /*end*/
 
@@ -1209,26 +1209,6 @@ static int bq2597x_enable_regulation(struct bq2597x *bq, bool enable)
 
 }
 
-static int bq2597x_enable_ucp(struct bq2597x *bq, bool enable)
-{
-	int ret;
-	u8 val;
-
-	if (enable)
-		val = BQ2597X_IBUS_LOW_DG_5MS;
-	else
-		val = BQ2597X_IBUS_LOW_DG_10US;
-
-	val <<= BQ2597X_IBUS_LOW_DG_SHIFT;
-
-	ret = bq2597x_update_bits(bq, BQ2597X_REG_2E,
-				BQ2597X_IBUS_LOW_DG_MASK,
-				val);
-
-	return ret;
-
-}
-
 static int bq2597x_set_ss_timeout(struct bq2597x *bq, int timeout)
 {
 	int ret;
@@ -1697,25 +1677,15 @@ static int bq2597x_init_regulation(struct bq2597x *bq)
 
 static int bq2597x_init_device(struct bq2597x *bq)
 {
-	int ret;
-	u8 val;
 	bq2597x_enable_wdt(bq, false);
 
-	bq2597x_set_ss_timeout(bq, 1500);
+	bq2597x_set_ss_timeout(bq, 100000);
 	bq2597x_set_ibus_ucp_thr(bq, 300);
-	bq2597x_enable_ucp(bq,1);
 	bq2597x_set_sense_resistor(bq, bq->cfg->sense_r_mohm);
 
 	bq2597x_init_protection(bq);
 	bq2597x_init_adc(bq);
 	bq2597x_init_int_src(bq);
-
-	ret = bq2597x_read_byte(bq, BQ2597X_REG_13, &val);
-	bq_err("Bq device ID = 0x%02X\n", val);
-	if (!ret && val == BQ25968_DEV_ID) {
-		bq_err("Bq device ID = 0x%02X\n", val);
-		return 0;
-	}
 
 	bq2597x_init_regulation(bq);
 
@@ -1803,6 +1773,7 @@ static enum power_supply_property bq2597x_charger_props[] = {
 	POWER_SUPPLY_PROP_TI_SET_BUS_PROTECTION_FOR_QC3,
 	POWER_SUPPLY_PROP_MODEL_NAME,
 };
+
 static void bq2597x_check_alarm_status(struct bq2597x *bq);
 static void bq2597x_check_fault_status(struct bq2597x *bq);
 
@@ -1819,8 +1790,6 @@ static int bq2597x_charger_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 		bq2597x_check_charge_enabled(bq, &bq->charge_enabled);
 		val->intval = bq->charge_enabled;
-		bq_info("POWER_SUPPLY_PROP_CHARGING_ENABLED: %s\n",
-				val->intval ? "enable" : "disable");
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = 0;
@@ -2038,7 +2007,7 @@ static void bq2597x_dump_reg(struct bq2597x *bq)
 }
 EXPORT_SYMBOL_GPL(bq2597x_dump_reg);
 
-/*static void bq2597x_dump_important_regs(struct bq2597x *bq)
+static void bq2597x_dump_important_regs(struct bq2597x *bq)
 {
 
 	int ret;
@@ -2073,7 +2042,7 @@ EXPORT_SYMBOL_GPL(bq2597x_dump_reg);
 	if (!ret)
 		bq_err("dump regulation flag Reg[%02X] = 0x%02X\n",
 				BQ2597X_REG_2D, val);
-}*/
+}
 
 static void bq2597x_check_alarm_status(struct bq2597x *bq)
 {
@@ -2167,8 +2136,7 @@ static irqreturn_t bq2597x_charger_interrupt(int irq, void *dev_id)
 	struct bq2597x *bq = dev_id;
 
 	bq_info("INT OCCURED\n");
-
-	/*mutex_lock(&bq->irq_complete);
+	mutex_lock(&bq->irq_complete);
 	bq->irq_waiting = true;
 	if (!bq->resume_completed) {
 		dev_dbg(bq->dev, "IRQ triggered before device-resume\n");
@@ -2180,14 +2148,18 @@ static irqreturn_t bq2597x_charger_interrupt(int irq, void *dev_id)
 		mutex_unlock(&bq->irq_complete);
 		return IRQ_HANDLED;
 	}
-	bq->irq_waiting = false;*/
-	/* dump some impoartant registers and alarm fault status for debug */
-	/*bq2597x_dump_important_regs(bq);
+	bq->irq_waiting = false;
+	/* TODO */
 	bq2597x_check_alarm_status(bq);
 	bq2597x_check_fault_status(bq);
-	mutex_unlock(&bq->irq_complete);*/
 
-	/* power_supply_changed(bq->fc2_psy); */
+//	bq2597x_dump_reg(bq);
+	bq2597x_dump_important_regs(bq);
+	mutex_unlock(&bq->irq_complete);
+	/*mutex_lock(&bq->irq_complete);
+	bq2597x_dump_reg(bq);
+	mutex_unlock(&bq->irq_complete);
+	power_supply_changed(bq->fc2_psy);*/
 
 	return IRQ_HANDLED;
 }
@@ -2349,7 +2321,7 @@ static int bq2597x_charger_probe(struct i2c_client *client,
 			goto err_1;
 		}
 		/* no need to enable this irq as a wakeup source */
-		/* enable_irq_wake(client->irq); */
+		/*enable_irq_wake(client->irq);*/
 	}
 
 	device_init_wakeup(bq->dev, 1);
@@ -2361,7 +2333,7 @@ static int bq2597x_charger_probe(struct i2c_client *client,
 		goto err_1;
 	}
 
-	/* determine_initial_status(bq); */
+	/*determine_initial_status(bq);*/
 
 	bq_info("bq2597x probe successfully, Part Num:%d\n!",
 				bq->part_no);
@@ -2420,7 +2392,9 @@ static int bq2597x_resume(struct device *dev)
 	} else {
 		mutex_unlock(&bq->irq_complete);
 	}
+
 	bq2597x_enable_adc(bq, true);
+
 	power_supply_changed(bq->fc2_psy);
 	bq_err("Resume successfully!");
 
